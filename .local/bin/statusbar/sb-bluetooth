@@ -1,0 +1,19 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+    1) setsid -f "$HOME/.local/bin/btmenu" ;;
+    3) notify-send "Bluetooth" "Left click opens the Bluetooth menu." ;;
+    6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+esac
+
+state='×'
+timeout 1 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes' && state='○'
+for addr in $(timeout 1 bluetoothctl devices 2>/dev/null | awk '{print $2}'); do
+	if timeout 1 bluetoothctl info "$addr" 2>/dev/null | grep -q 'Connected: yes'; then
+		state='●'
+		break
+	fi
+done
+printf "%s%s\n" "$ICON_BLUETOOTH" "$state"

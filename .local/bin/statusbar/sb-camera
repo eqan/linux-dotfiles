@@ -1,0 +1,16 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) setsid -f camview ;;
+	3) notify-send 'Camera' 'The Insta360 Link 2C is connected.' ;;
+	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+esac
+
+for dev in /dev/video0 /dev/video1; do
+	if [ -e "$dev" ] && v4l2-ctl -d "$dev" --all 2>/dev/null | grep -q 'Insta360 Link 2C'; then
+		printf '%s\n' "$ICON_CAMERA"
+		exit
+	fi
+done

@@ -1,0 +1,54 @@
+#!/bin/sh
+# Read-only preflight for installing LARBS on the X210Ai.
+
+set -u
+fail=0
+
+check() {
+    label=$1
+    shift
+    if "$@"; then
+        printf 'OK   %s\n' "$label"
+    else
+        printf 'WARN %s\n' "$label"
+        fail=1
+    fi
+}
+
+printf '%s\n' 'X210Ai + LARBS preflight'
+printf '%s\n' '========================'
+check 'running as the intended desktop user' test "$(id -un)" = e
+check 'desktop user belongs to wheel' id -nG e | tr ' ' '\n' | grep -qx wheel
+check 'root is on ext4 (not the tiny EFI partition)' sh -c 'test "$(findmnt -no FSTYPE /)" = ext4'
+check 'EFI System Partition is mounted at /boot/efi' sh -c 'findmnt -no TARGET /boot/efi 2>/dev/null | grep -qx /boot/efi'
+check 'UEFI boot mode is active' test -d /sys/firmware/efi
+check 'native modesetting is available' test -e /usr/lib/xorg/modules/drivers/modesetting_drv.so
+check 'legacy xf86-video-intel is absent' sh -c '! pacman -Qq xf86-video-intel >/dev/null 2>&1'
+check 'X210Ai panel is 2560x1600' sh -c 'xrandr --query 2>/dev/null | grep -q "2560x1600"'
+check 'Xft DPI is 186' sh -c 'grep -Eq "^[[:space:]]*Xft\.dpi:[[:space:]]*186" "$HOME/.config/x11/xresources"'
+check 'LightDM greeter is installed' command -v lightdm
+check 'Windows boot probing is installed' command -v os-prober
+check '10_linux is executable' test -x /etc/grub.d/10_linux
+check 'bluetoothctl is installed' command -v bluetoothctl
+check 'Bluetooth service is enabled' systemctl is-enabled --quiet bluetooth.service
+check 'camera viewer tools are installed' sh -c 'command -v mpv >/dev/null && command -v v4l2-ctl >/dev/null'
+check 'PipeWire audio stack is installed' sh -c 'pacman -Q pipewire pipewire-pulse pipewire-audio wireplumber >/dev/null 2>&1'
+check 'clipboard image tools are installed' sh -c 'command -v xclip >/dev/null && command -v nsxiv >/dev/null'
+check 'Zen browser is installed' command -v zen-browser
+
+printf '%s\n' '--- storage ---'
+findmnt -no SOURCE,TARGET,FSTYPE / /boot /boot/efi 2>/dev/null || true
+printf '%s\n' '--- display ---'
+xrandr --query 2>/dev/null | sed -n '1,12p' || true
+printf '%s\n' '--- graphics packages ---'
+pacman -Q xorg-server mesa xf86-video-intel 2>/dev/null || true
+printf '%s\n' '--- Bluetooth ---'
+systemctl is-active bluetooth.service 2>/dev/null || true
+bluetoothctl show 2>/dev/null || true
+
+if [ "$fail" -eq 0 ]; then
+    printf '%s\n' 'Preflight passed.'
+else
+    printf '%s\n' 'Preflight found warnings; resolve them before running LARBS.'
+fi
+exit "$fail"

@@ -1,0 +1,43 @@
+#!/bin/sh
+
+# This file runs when a DM logs you into a graphical session.
+# If you use startx/xinit like a Chad, this file will also be sourced.
+
+# The 2560x1600 panel is a high-density display. 186 DPI keeps X11 UI
+# elements readable without changing the native resolution or refresh rate.
+xrandr --dpi 186
+
+# Load the LARBS X resources (including Xft DPI) before starting dwm.
+xrdb -merge "${XDG_CONFIG_HOME:-$HOME/.config}/x11/xresources"
+# Make the selected GTK theme and font visible to applications launched by dwm.
+export GTK_THEME="Arc-Gruvbox"
+export GTK2_RC_FILES="$HOME/.config/gtk-2.0/gtkrc"
+export XDG_CURRENT_DESKTOP="dwm"
+export XDG_SESSION_DESKTOP="dwm"
+# Use the Intel i915 hardware renderer for graphical applications.
+unset LIBGL_ALWAYS_SOFTWARE MOZ_X11_EGL
+setbg &			# set the background with the `setbg` script
+#xrdb ${XDG_CONFIG_HOME:-$HOME/.config}/x11/xresources & xrdbpid=$!	# Uncomment to use Xresources colors/settings on startup
+
+# xcompmgr has triggered Intel Xorg rendering failures on this machine
+# (gray-screen/X-session crashes). Keep the session uncomposited for stability.
+autostart="mpd dunst unclutter pipewire remapd"
+
+for program in $autostart; do
+	if [ "$program" = clipboard-daemon ]; then
+		pgrep -u "$USER" -f "$HOME/.local/bin/clipboard-daemon" >/dev/null 2>&1 || "$program" &
+	else
+		pidof -sx "$program" || "$program" &
+	fi
+done >/dev/null 2>&1
+
+if command -v clipboardd >/dev/null 2>&1 && ! pgrep -u "$USER" -x clipboardd >/dev/null 2>&1; then
+	setsid -f clipboardd
+fi
+
+if command -v copyq >/dev/null 2>&1 && ! pgrep -u "$USER" -x copyq >/dev/null 2>&1; then
+	setsid -f copyq --start-server
+fi
+
+# Ensure that xrdb has finished running before moving on to start the WM/DE.
+[ -n "$xrdbpid" ] && wait "$xrdbpid"

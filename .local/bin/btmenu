@@ -1,0 +1,56 @@
+#!/bin/sh
+
+# Small dmenu frontend for bluetoothctl, intended for use from dwmblocks.
+lock="${XDG_RUNTIME_DIR:-/tmp}/larbs-btmenu.lock"
+exec 9>"$lock"
+flock -n 9 || exit 0
+
+menu='Power on
+Power off
+Scan for devices
+Refresh devices'
+
+while :; do
+	state=$(timeout 1 bluetoothctl show 2>/dev/null | awk -F': ' '/Powered:/ {print $2; exit}')
+	[ "$state" = yes ] || state=off
+
+	devices=$(timeout 1 bluetoothctl devices 2>/dev/null | sed 's/^Device //' | while read -r addr name; do
+		[ -n "$addr" ] || continue
+		if timeout 1 bluetoothctl info "$addr" 2>/dev/null | grep -q 'Connected: yes'; then
+			printf '[Connected] %s (%s)\n' "$name" "$addr"
+		else
+			printf '[Available] %s (%s)\n' "$name" "$addr"
+		fi
+	done)
+
+	choice=$(printf 'Bluetooth: %s\n%s\n%s\n' "$state" "$menu" "$devices" |
+		dmenu -i -p 'Bluetooth') || exit 0
+
+	case "$choice" in
+		'Bluetooth: '*) continue ;;
+		'[Connected]'*|'[Available]'*)
+			addr=$(printf '%s\n' "$choice" | sed -n 's/.*(\([0-9A-Fa-f:]\{17\}\)).*/\1/p')
+			[ -n "$addr" ] || continue
+			name=$(timeout 1 bluetoothctl info "$addr" 2>/dev/null | awk -F': ' '/Name:/ {print $2; exit}')
+			if printf '%s\n' "$choice" | grep -q '^\[Connected\]'; then
+				timeout 5 bluetoothctl disconnect "$addr" >/dev/null 2>&1
+			else
+				# One selection does the normal safe setup for a new device.
+				timeout 15 bluetoothctl pair "$addr" >/dev/null 2>&1 || true
+				timeout 3 bluetoothctl trust "$addr" >/dev/null 2>&1 || true
+				timeout 15 bluetoothctl connect "$addr" >/dev/null 2>&1 || true
+			fi
+			notify-send 'Bluetooth' "$name" >/dev/null 2>&1 || true
+			;;
+		'Power on') timeout 3 bluetoothctl power on >/dev/null 2>&1 ;;
+		'Power off') timeout 3 bluetoothctl power off >/dev/null 2>&1 ;;
+		'Scan for devices')
+			timeout 3 bluetoothctl power on >/dev/null 2>&1
+			timeout 5 bluetoothctl scan on >/dev/null 2>&1
+			;;
+		'Refresh devices') : ;;
+		*) continue ;;
+	esac
+
+	pkill -RTMIN+21 "${STATUSBAR:-dwmblocks}" 2>/dev/null || true
+done

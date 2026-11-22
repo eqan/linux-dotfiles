@@ -1,0 +1,10 @@
+#!/bin/sh
+
+file="${XDG_DATA_HOME:-$HOME/.local/share}/larbs/shortcuts"
+[ -r "$file" ] || exit 1
+choice=$(sed '/^[[:space:]]*#/d;/^[[:space:]]*$/d' "$file" |
+	awk -F '\t' '{printf "%-24s %-14s %s\n", $1, $2, $3}' |
+	dmenu -i -l 18 -p 'Shortcuts') || exit 0
+[ -n "$choice" ] || exit 0
+clipboard-copy text "$choice"
+notify-send 'Shortcut copied' "$(printf '%s' "$choice" | sed 's/[[:space:]][[:space:]]*/ /g')" >/dev/null 2>&1 || true

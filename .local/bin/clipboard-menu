@@ -1,0 +1,112 @@
+#!/usr/bin/python
+"""Ditto-like searchable X11 clipboard picker for dwm."""
+import os
+import sqlite3
+import subprocess
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gtk, Gdk, GdkPixbuf, Pango
+
+DB = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
+
+def rows():
+    if not os.path.exists(DB):
+        return []
+    with sqlite3.connect(DB) as db:
+        return db.execute("SELECT id,kind,mime,data,created FROM items ORDER BY created DESC LIMIT 300").fetchall()
+
+class Picker(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Clipboard")
+        self.set_default_size(720, 620)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.connect("key-press-event", self.keypress)
+        self.items = rows()
+        self.filtered = self.items
+        css = Gtk.CssProvider()
+        css.load_from_data(b"""
+            window { background:#1d2021; color:#ebdbb2; border:2px solid #458588; }
+            entry { background:#282828; color:#ebdbb2; padding:10px; border:1px solid #d79921; }
+            flowbox { background:#1d2021; padding:6px; }
+            flowboxchild { background:#282828; border:1px solid #504945; border-radius:4px; margin:4px; padding:8px; }
+            flowboxchild:hover, flowboxchild:selected { background:#3c3836; border-color:#458588; }
+            label { color:#ebdbb2; }
+        """)
+        Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, 800)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        root.set_border_width(10)
+        self.add(root)
+        self.search = Gtk.SearchEntry(placeholder_text="Search clipboard…")
+        self.search.connect("search-changed", self.refresh)
+        root.pack_start(self.search, False, False, 0)
+        self.hint = Gtk.Label(label="Enter restore  •  Esc close  •  ↑↓ navigate")
+        self.hint.set_xalign(0)
+        root.pack_start(self.hint, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.grid = Gtk.FlowBox()
+        self.grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.grid.set_activate_on_single_click(True)
+        self.grid.set_max_children_per_line(3)
+        self.grid.set_min_children_per_line(1)
+        self.grid.connect("child-activated", self.activate)
+        scroll.add(self.grid)
+        root.pack_start(scroll, True, True, 0)
+        self.refresh()
+        self.search.grab_focus()
+
+    def keypress(self, _window, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.destroy(); return True
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            selected = self.grid.get_selected_children()
+            if selected: self.activate(self.grid, selected[0])
+            return True
+        return False
+
+    def refresh(self, *_args):
+        query = self.search.get_text().casefold()
+        self.filtered = [row for row in self.items if not query or query in self.preview(row).casefold()]
+        for child in self.grid.get_children(): self.grid.remove(child)
+        for index, row in enumerate(self.filtered): self.grid.add(self.card(index + 1, row))
+        self.grid.show_all()
+
+    @staticmethod
+    def preview(row):
+        return row[3].decode("utf-8", "replace") if row[1] == "text" else "image"
+
+    def card(self, number, row):
+        item_id, kind, _mime, data, _created = row
+        card = Gtk.FlowBoxChild(); card.item_id = item_id
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        badge = Gtk.Label(label=str(number)); badge.set_xalign(0)
+        box.pack_start(badge, False, False, 0)
+        if kind == "image":
+            try:
+                loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                loader.write(data); loader.close()
+                pix = loader.get_pixbuf()
+                if pix:
+                    scaled = pix.scale_simple(220, 150, GdkPixbuf.InterpType.BILINEAR)
+                    box.pack_start(Gtk.Image.new_from_pixbuf(scaled), False, False, 0)
+            except Exception:
+                box.pack_start(Gtk.Label(label="[image]"), False, False, 0)
+        else:
+            label = Gtk.Label(label=self.preview(row).replace("\n", "  ")[:400])
+            label.set_xalign(0); label.set_line_wrap(True); label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            box.pack_start(label, True, True, 0)
+        card.add(box); return card
+
+    def activate(self, _grid, child):
+        subprocess.Popen([os.path.expanduser("~/.local/bin/clipboard-restore"), str(child.item_id)])
+        self.destroy()
+
+picker = Picker()
+picker.show_all()
+Gtk.main()

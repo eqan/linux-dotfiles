@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Reconnect trusted Bluetooth devices after login, wake, or Bluetooth restarts.
+while :; do
+	for addr in $(timeout 3 bluetoothctl devices 2>/dev/null | awk '{print $2}'); do
+		info=$(timeout 3 bluetoothctl info "$addr" 2>/dev/null || true)
+		printf '%s\n' "$info" | grep -q 'Paired: yes' || continue
+		printf '%s\n' "$info" | grep -q 'Trusted: yes' || continue
+		printf '%s\n' "$info" | grep -q 'Connected: yes' && continue
+		timeout 15 bluetoothctl connect "$addr" >/dev/null 2>&1 || true
+	done
+	sleep 15
+done

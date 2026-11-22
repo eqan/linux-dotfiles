@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+make -C "$HOME/.local/src/clipboardd" clean install PREFIX="$HOME/.local"

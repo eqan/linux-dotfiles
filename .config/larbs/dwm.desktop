@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=dwm
+Comment=Dynamic window manager session
+Exec=/home/e/.config/x11/xinitrc
+TryExec=/home/e/.config/x11/xinitrc
+Type=Application
+DesktopNames=dwm

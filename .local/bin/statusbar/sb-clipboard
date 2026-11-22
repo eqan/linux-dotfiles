@@ -1,0 +1,24 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+db="${XDG_CACHE_HOME:-$HOME/.cache}/clipboard/history.db"
+
+case $BLOCK_BUTTON in
+	1) setsid -f clipboard-menu ;;
+	2) setsid -f clipboard-images ;;
+	3) notify-send 'Clipboard' 'Left click: restore text/images. Middle click: open image gallery.' ;;
+	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+esac
+
+text_count=0
+image_count=0
+[ -f "$db" ] && text_count=$(sqlite3 "$db" 'select count(*) from items where kind="text";' 2>/dev/null || echo 0)
+[ -f "$db" ] && image_count=$(sqlite3 "$db" 'select count(*) from items where kind="image";' 2>/dev/null || echo 0)
+count=$((text_count + image_count))
+if [ "$count" -gt 0 ]; then
+	if [ "$image_count" -gt 0 ]; then
+		printf '%s %s %s %s\n' "$ICON_CLIPBOARD" "$text_count" "$ICON_IMAGE" "$image_count"
+	else
+		printf '%s %s\n' "$ICON_CLIPBOARD" "$text_count"
+	fi
+fi

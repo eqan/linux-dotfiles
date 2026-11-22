@@ -1,0 +1,60 @@
+#!/bin/sh
+# Bootstrap the user-facing LARBS desktop additions for the X210Ai.
+# Run as user e after the base LARBS dotfiles have been installed.
+
+set -eu
+
+command -v yay >/dev/null 2>&1 || {
+	echo 'yay is required to install the Zen AUR package.' >&2
+	exit 1
+}
+
+yay -S --needed zen-browser-bin gtk-theme-arc-gruvbox-git
+
+sudo pacman -S --needed \
+	bluez bluez-utils lightdm lightdm-gtk-greeter os-prober \
+	mpv ffmpeg v4l-utils \
+	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
+	xclip maim nsxiv clipnotify \
+	adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
+
+sudo systemctl enable --now bluetooth.service
+
+# Keep GTK applications consistent with the dwm theme and typography.
+if command -v gsettings >/dev/null 2>&1; then
+	 gsettings set org.gnome.desktop.interface gtk-theme 'Arc-Gruvbox'
+	 gsettings set org.gnome.desktop.interface font-name 'Roboto 10'
+	 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+fi
+
+# Apply Zen's tracked acceleration and memory defaults to existing profiles.
+if command -v zen-tune >/dev/null 2>&1; then
+	zen-tune
+fi
+
+systemctl --user daemon-reload
+systemctl --user enable --now bluetooth-autoconnect.service
+
+for helper in \
+	btmenu btstatus camview zen-browser-optimized bluetooth-autoconnect clipnotify clipboard-copy clipboard-daemon clipboard-restore \
+	clipboard-images clipboard-menu shortcuts-menu shortcuts-edit \
+	statusbar/sb-camera statusbar/sb-clipboard statusbar/sb-bluetooth \
+	statusbar/sb-volume; do
+	[ -x "$HOME/.local/bin/$helper" ] || {
+		echo "Missing executable helper: $HOME/.local/bin/$helper" >&2
+		exit 1
+	}
+done
+
+"$HOME/.config/larbs/build-suckless"
+"$HOME/.config/larbs/build-clipboard"
+
+# Refresh the status bar without restarting dwm. New dwm keybindings take
+# effect after restarting dwm or logging in again.
+if command -v dwmblocks >/dev/null 2>&1; then
+	pkill -x dwmblocks 2>/dev/null || true
+	setsid -f dwmblocks
+fi
+
+echo 'LARBS desktop bootstrap complete.'
+echo 'Restart dwm or log in again to activate new dwm shortcuts.'

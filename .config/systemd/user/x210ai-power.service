@@ -1,0 +1,12 @@
+[Unit]
+Description=X210Ai automatic AC/battery power profile
+After=power-profiles-daemon.service
+
+[Service]
+Type=simple
+ExecStart=%h/.config/x210ai/x210ai-power
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

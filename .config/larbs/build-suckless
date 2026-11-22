@@ -1,0 +1,16 @@
+#!/bin/sh
+# Rebuild the user-owned LARBS suckless components reproducibly.
+
+set -eu
+src_root="$HOME/.local/src"
+prefix="$HOME/.local"
+
+for project in dwm dmenu st dwmblocks; do
+    [ -d "$src_root/$project" ] || {
+        echo "Missing $src_root/$project" >&2
+        exit 1
+    }
+    make -C "$src_root/$project" clean install PREFIX="$prefix"
+done
+
+echo "Installed dwm, dmenu, st, and dwmblocks into $prefix/bin."

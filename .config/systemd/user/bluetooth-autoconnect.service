@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconnect trusted Bluetooth devices
+After=pipewire-pulse.service
+
+[Service]
+ExecStart=%h/.local/bin/bluetooth-autoconnect
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,85 @@
+#!/bin/sh
+# Install the root-owned parts of the LARBS/X210Ai desktop startup.
+# Run once as root:
+#   sudo ~/.config/larbs/install-system-boot
+
+set -eu
+
+[ "$(id -u)" -eq 0 ] || {
+	echo "Run this script as root: sudo ~/.config/larbs/install-system-boot" >&2
+	exit 1
+}
+
+user_name="${SUDO_USER:-e}"
+user_home="$(getent passwd "$user_name" | cut -d: -f6)"
+backup_dir="/var/backups/larbs-x210ai/$(date +%Y%m%d-%H%M%S)"
+getty_dir="/etc/systemd/system/getty@tty1.service.d"
+getty_file="$getty_dir/override.conf"
+grub_defaults="/etc/default/grub"
+vconsole_file="/etc/vconsole.conf"
+
+install -d -m 0755 "$backup_dir"
+cp -a "$grub_defaults" "$backup_dir/grub" 2>/dev/null || true
+cp -a "$vconsole_file" "$backup_dir/vconsole" 2>/dev/null || true
+cp -a /etc/lightdm/lightdm.conf "$backup_dir/lightdm.conf" 2>/dev/null || true
+cp -a /etc/lightdm/lightdm-gtk-greeter.conf "$backup_dir/lightdm-gtk-greeter.conf" 2>/dev/null || true
+
+mountpoint -q /boot/efi || {
+	echo "/boot/efi is not mounted; refusing to change boot configuration." >&2
+	exit 1
+}
+
+chmod +x /etc/grub.d/10_linux
+
+if [ -f "$getty_file" ]; then
+	install -d -m 0755 "$backup_dir/getty"
+	mv "$getty_file" "$backup_dir/getty/override.conf"
+fi
+install -Dm644 "$user_home/.config/larbs/dwm.desktop" /usr/share/xsessions/dwm.desktop
+install -Dm644 "$user_home/.config/larbs/lightdm.conf" /etc/lightdm/lightdm.conf
+install -Dm644 "$user_home/.config/larbs/lightdm-gtk-greeter.conf" /etc/lightdm/lightdm-gtk-greeter.conf
+install -Dm644 "$user_home/.local/share/thiemeyer_road_to_samarkand.jpg" /boot/grub/larbs-wallpaper.jpg
+
+if grep -q '^FONT=' "$vconsole_file" 2>/dev/null; then
+	sed -i 's/^FONT=.*/FONT=ter-132n/' "$vconsole_file"
+else
+	echo 'FONT=ter-132n' >>"$vconsole_file"
+fi
+
+if ! grep -q '^GRUB_TIMEOUT_STYLE=' "$grub_defaults"; then
+		echo 'GRUB_TIMEOUT_STYLE=menu' >>"$grub_defaults"
+else
+	sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=menu/' "$grub_defaults"
+fi
+if ! grep -q '^GRUB_TIMEOUT=' "$grub_defaults"; then
+	echo 'GRUB_TIMEOUT=10' >>"$grub_defaults"
+else
+	sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=10/' "$grub_defaults"
+fi
+if ! grep -q '^GRUB_GFXMODE=' "$grub_defaults"; then
+	echo 'GRUB_GFXMODE=1280x720x32,auto' >>"$grub_defaults"
+else
+	sed -i 's/^GRUB_GFXMODE=.*/GRUB_GFXMODE=1280x720x32,auto/' "$grub_defaults"
+fi
+
+if grep -q '^#GRUB_DISABLE_OS_PROBER=' "$grub_defaults"; then
+	sed -i 's/^#GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' "$grub_defaults"
+elif ! grep -q '^GRUB_DISABLE_OS_PROBER=' "$grub_defaults"; then
+	echo 'GRUB_DISABLE_OS_PROBER=false' >>"$grub_defaults"
+else
+	sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' "$grub_defaults"
+fi
+if grep -q '^#GRUB_BACKGROUND=' "$grub_defaults"; then
+	sed -i 's|^#GRUB_BACKGROUND=.*|GRUB_BACKGROUND=/boot/grub/larbs-wallpaper.jpg|' "$grub_defaults"
+elif ! grep -q '^GRUB_BACKGROUND=' "$grub_defaults"; then
+	echo 'GRUB_BACKGROUND=/boot/grub/larbs-wallpaper.jpg' >>"$grub_defaults"
+fi
+
+systemctl daemon-reload
+systemctl disable getty@tty1.service ly@tty1.service 2>/dev/null || true
+systemctl enable lightdm.service
+timedatectl set-timezone Europe/Paris
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Arch --recheck
+grub-mkconfig -o /boot/grub/grub.cfg
+
+echo "Installed LightDM login screen and dwm session; regenerated GRUB. Backup: $backup_dir"

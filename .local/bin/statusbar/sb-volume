@@ -1,0 +1,49 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+# Prints the current volume or 🔇 if muted.
+
+case $BLOCK_BUTTON in
+	1) setsid -w -f "$TERMINAL" -e pulsemixer; pkill -RTMIN+10 "${STATUSBAR:-dwmblocks}" ;;
+	2) wpctl set-mute @DEFAULT_SINK@ toggle ;;
+	4) wpctl set-volume @DEFAULT_SINK@ 1%+ ;;
+	5) wpctl set-volume @DEFAULT_SINK@ 1%- ;;
+	3) notify-send "📢 Volume module" "\- Shows volume 🔊, 🔇 if muted.
+- Middle click to mute.
+- Scroll to change." ;;
+	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
+esac
+
+vol="$(timeout 1 wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null || true)"
+
+# PipeWire can briefly be unavailable while Bluetooth or WirePlumber restarts.
+# Fall back to the PulseAudio-compatible interface instead of printing blank.
+if ! printf '%s\n' "$vol" | grep -q '^Volume:'; then
+	if timeout 1 pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null | grep -q 'yes'; then
+		printf "%s\n" "$ICON_VOLUME_MUTE"
+		exit
+	fi
+	vol="$(timeout 1 pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null | awk '
+		/Volume:/ {
+			for (i = 1; i <= NF; i++)
+				if ($i ~ /^[0-9]+%$/) { sub(/%/, "", $i); print $i; exit }
+		}')"
+	[ -n "$vol" ] || { printf "%s\n" "$ICON_VOLUME_MUTE"; exit; }
+	vol="Volume: $(awk -v v="$vol" 'BEGIN { printf "%.2f", v / 100 }')"
+fi
+
+# If muted, print 🔇 and exit.
+[ "$vol" != "${vol%\[MUTED\]}" ] && { printf "%s\n" "$ICON_VOLUME_MUTE"; exit ;}
+
+# Omit the '.' without calling an external program.
+vol="$(awk -v v="${vol#Volume: }" 'BEGIN { printf "%.0f", v * 100 }')"
+
+case 1 in
+	$((vol >= 70)) ) icon="$ICON_VOLUME_HIGH" ;;
+	$((vol >= 30)) ) icon="$ICON_VOLUME_LOW" ;;
+	$((vol >= 1)) ) icon="$ICON_VOLUME_LOW" ;;
+	* ) printf "%s\n" "$ICON_VOLUME_MUTE"; exit ;;
+esac
+
+printf "%s %d%%\n" "$icon" "$vol"

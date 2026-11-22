@@ -1,0 +1,10 @@
+#!/usr/bin/python
+import os, sqlite3, subprocess, tempfile
+root=os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard")
+dbpath=os.path.join(root, "history.db")
+out=tempfile.mkdtemp(prefix="clipboard-gallery-", dir=root)
+with sqlite3.connect(dbpath) as db:
+    rows=db.execute("select id,data from items where kind='image' order by created desc").fetchall()
+for item_id, data in rows:
+    with open(os.path.join(out, "%06d.png" % item_id), "wb") as f: f.write(data)
+if rows: subprocess.run(["nsxiv"] + [os.path.join(out, name) for name in os.listdir(out)])

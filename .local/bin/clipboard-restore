@@ -1,0 +1,16 @@
+#!/usr/bin/python
+import os
+import sqlite3
+import subprocess
+import sys
+
+db_path = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
+if len(sys.argv) != 2:
+    raise SystemExit(2)
+with sqlite3.connect(db_path) as db:
+    row = db.execute("SELECT kind,data FROM items WHERE id=?", (int(sys.argv[1]),)).fetchone()
+if not row:
+    raise SystemExit(1)
+kind, data = row
+target = "image/png" if kind == "image" else "UTF8_STRING"
+subprocess.run(["xclip", "-selection", "clipboard", "-t", target, "-i"], input=data, check=True)

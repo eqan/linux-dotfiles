@@ -1,0 +1,12 @@
+#!/bin/sh
+# Apply the tracked Zen defaults to every existing Zen profile.
+set -eu
+
+template="$HOME/.config/zen/larbs-user.js"
+[ -f "$template" ] || exit 0
+
+find "$HOME/.config/zen" -mindepth 2 -maxdepth 2 -type f -name prefs.js -print 2>/dev/null |
+while IFS= read -r prefs; do
+	profile=${prefs%/*}
+	install -m 644 "$template" "$profile/user.js"
+done

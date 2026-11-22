@@ -1,0 +1,12 @@
+#!/bin/sh
+
+connected=$(timeout 1 bluetoothctl devices 2>/dev/null | while read -r _ addr name; do
+	if timeout 1 bluetoothctl info "$addr" 2>/dev/null | grep -q 'Connected: yes'; then
+		printf '%s\n' "$name"
+	fi
+done | paste -sd ', ' -)
+[ -n "$connected" ] || connected='No Bluetooth device connected'
+sink=$(pactl get-default-sink 2>/dev/null || true)
+description=$(pactl list sinks 2>/dev/null | awk -v sink="$sink" '$0 ~ "Name: " sink { found=1 } found && /Description:/ { sub(/^[^:]*: /, ""); print; exit }')
+[ -n "$description" ] || description="$sink"
+notify-send 'Bluetooth status' "$connected\nAudio output: ${description:-unknown}" >/dev/null 2>&1

@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# Insta360 Link 2C Linux viewer. The camera exposes 4K through standard UVC.
+dev=${1:-/dev/video0}
+
+[ -e "$dev" ] || {
+	notify-send 'Camera' "Camera device not found: $dev" 2>/dev/null || true
+	exit 1
+}
+
+v4l2-ctl -d "$dev" --set-ctrl=focus_automatic_continuous=1,contrast=55,saturation=55,sharpness=60 >/dev/null 2>&1 || true
+v4l2-ctl -d "$dev" --set-fmt-video=width=3840,height=2160,pixelformat=MJPG >/dev/null 2>&1 || true
+v4l2-ctl -d "$dev" --set-parm=30 >/dev/null 2>&1 || true
+
+exec mpv --no-osc --no-input-default-bindings --profile=low-latency \
+	--title='Insta360 Link 2C — 4K' \
+	--demuxer-lavf-format=video4linux2 \
+	--demuxer-lavf-o=video_size=3840x2160,framerate=30,input_format=mjpeg \
+	"$dev"
