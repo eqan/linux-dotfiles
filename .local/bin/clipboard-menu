@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GdkPixbuf, Pango
+from gi.repository import Gtk, Gdk, GdkPixbuf, Pango, GLib
 
 DB = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
 PAGE_SIZE = 50
@@ -30,15 +30,15 @@ class Picker(Gtk.Window):
         self.connect("key-press-event", self.keypress)
         self.offset = 0
         self.loading = False
-        self.items = rows()
+        self.items = []
         self.filtered = self.items
         css = Gtk.CssProvider()
         css.load_from_data(b"""
             window { background:#1d2021; color:#ebdbb2; border:2px solid #458588; }
             entry { background:#282828; color:#ebdbb2; padding:10px; border:1px solid #d79921; }
-            flowbox { background:#1d2021; padding:6px; }
-            flowboxchild { background:#282828; border:1px solid #504945; border-radius:4px; margin:4px; padding:8px; }
-            flowboxchild:hover, flowboxchild:selected { background:#3c3836; border-color:#458588; }
+            list { background:#1d2021; padding:4px; }
+            row { background:#282828; border-bottom:1px solid #504945; padding:10px 12px; }
+            row:hover, row:selected { background:#3c3836; border-left:3px solid #458588; }
             label { color:#ebdbb2; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), css, 800)
@@ -53,24 +53,23 @@ class Picker(Gtk.Window):
         root.pack_start(self.hint, False, False, 0)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.grid = Gtk.FlowBox()
+        self.grid = Gtk.ListBox()
         self.grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.grid.set_activate_on_single_click(True)
-        self.grid.set_max_children_per_line(3)
-        self.grid.set_min_children_per_line(1)
-        self.grid.connect("child-activated", self.activate)
+        self.grid.connect("row-activated", self.activate)
         scroll.add(self.grid)
         root.pack_start(scroll, True, True, 0)
         scroll.get_vadjustment().connect("value-changed", self.maybe_load_more)
         self.refresh()
+        GLib.idle_add(self.load_initial)
         self.search.grab_focus()
 
     def keypress(self, _window, event):
         if event.keyval == Gdk.KEY_Escape:
             self.destroy(); return True
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
-            selected = self.grid.get_selected_children()
-            if selected: self.activate(self.grid, selected[0])
+            selected = self.grid.get_selected_row()
+            if selected: self.activate(self.grid, selected)
             return True
         return False
 
@@ -78,8 +77,13 @@ class Picker(Gtk.Window):
         query = self.search.get_text().casefold()
         self.filtered = [row for row in self.items if not query or query in self.preview(row).casefold()]
         for child in self.grid.get_children(): self.grid.remove(child)
-        for index, row in enumerate(self.filtered): self.grid.add(self.card(index + 1, row))
+        for row in self.filtered: self.grid.add(self.card(row))
         self.grid.show_all()
+
+    def load_initial(self):
+        self.items = rows()
+        self.refresh()
+        return GLib.SOURCE_REMOVE
 
     def maybe_load_more(self, adjustment):
         if self.loading or adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - 120:
@@ -95,24 +99,22 @@ class Picker(Gtk.Window):
     def preview(row):
         return row[3].decode("utf-8", "replace") if row[1] == "text" else "image"
 
-    def card(self, number, row):
+    def card(self, row):
         item_id, kind, _mime, data, _created = row
-        card = Gtk.FlowBoxChild(); card.item_id = item_id
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        badge = Gtk.Label(label=str(number)); badge.set_xalign(0)
-        box.pack_start(badge, False, False, 0)
+        card = Gtk.ListBoxRow(); card.item_id = item_id
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         if kind == "image":
             try:
                 loader = GdkPixbuf.PixbufLoader.new_with_type("png")
                 loader.write(data); loader.close()
                 pix = loader.get_pixbuf()
                 if pix:
-                    scaled = pix.scale_simple(220, 150, GdkPixbuf.InterpType.BILINEAR)
+                    scaled = pix.scale_simple(96, 64, GdkPixbuf.InterpType.BILINEAR)
                     box.pack_start(Gtk.Image.new_from_pixbuf(scaled), False, False, 0)
             except Exception:
                 box.pack_start(Gtk.Label(label="[image]"), False, False, 0)
         else:
-            label = Gtk.Label(label=self.preview(row)[:400])
+            label = Gtk.Label(label=self.preview(row)[:500])
             label.set_xalign(0); label.set_line_wrap(True); label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
             box.pack_start(label, True, True, 0)
         card.add(box); return card
