@@ -38,6 +38,7 @@ class Picker(Gtk.Window):
             entry { background:#282828; color:#ebdbb2; padding:10px; border:1px solid #d79921; }
             list { background:#1d2021; padding:4px; }
             row { background:#282828; border-bottom:1px solid #504945; padding:10px 12px; }
+            row:nth-child(even) { background:#32302f; }
             row:hover, row:selected { background:#3c3836; border-left:3px solid #458588; }
             label { color:#ebdbb2; }
         """)
