@@ -90,12 +90,10 @@ class Picker(Gtk.Window):
         return GLib.SOURCE_REMOVE
 
     def show_picker(self):
-        self.items = []
-        self.offset = 0
-        self.refresh()
         self.show_all()
         self.present()
         self.search.grab_focus()
+        GLib.idle_add(self.load_initial)
 
     def maybe_load_more(self, adjustment):
         if self.loading or adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - 120:
@@ -159,6 +157,8 @@ def request(_source, _condition):
     return True
 
 GLib.io_add_watch(server, GLib.IO_IN, request)
-if "--daemon" not in sys.argv:
+if "--daemon" in sys.argv:
+    picker.load_initial()
+else:
     picker.show_picker()
 Gtk.main()

@@ -2,13 +2,17 @@ CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
 PREFIX ?= $(HOME)/.local
 
-all: clipboardd
+all: clipboardd clipboard-show
 
 clipboardd: clipboardd.c
 	$(CC) $(CFLAGS) -o $@ $< -lX11 -lXfixes -lsqlite3
 
-install: clipboardd
+clipboard-show: clipboard-show.c
+	$(CC) $(CFLAGS) -o $@ $<
+
+install: clipboardd clipboard-show
 	install -Dm755 clipboardd $(PREFIX)/bin/clipboardd
+	install -Dm755 clipboard-show $(PREFIX)/bin/clipboard-show
 
 clean:
-	rm -f clipboardd
+	rm -f clipboardd clipboard-show
