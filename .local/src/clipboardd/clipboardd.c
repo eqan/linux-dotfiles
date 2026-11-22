@@ -16,6 +16,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define DEFAULT_MAX_CLIP_BYTES (32U * 1024U * 1024U)
+
 static char *read_cmd(const char *cmd, size_t *length) {
     FILE *fp = popen(cmd, "r");
     if (!fp) return NULL;
@@ -69,6 +71,10 @@ static void capture(sqlite3 *db) {
     char *data = read_cmd(cmd, &len);
     free(targets);
     if (!data || !len) { free(data); return; }
+    size_t max_bytes = DEFAULT_MAX_CLIP_BYTES;
+    const char *max_env = getenv("CLIPBOARD_MAX_BYTES");
+    if (max_env && *max_env) max_bytes = (size_t)strtoull(max_env, NULL, 10);
+    if (max_bytes && len > max_bytes) { free(data); return; }
     char digest[32];
     snprintf(digest, sizeof digest, "%016llx", (unsigned long long)hash_data(kind, (unsigned char *)data, len));
     sqlite3_stmt *stmt = NULL;
@@ -80,7 +86,7 @@ static void capture(sqlite3 *db) {
     sqlite3_step(stmt); sqlite3_finalize(stmt);
     sqlite3_prepare_v2(db, "UPDATE items SET created=strftime('%s','now') WHERE digest=?", -1, &stmt, NULL);
     sqlite3_bind_text(stmt, 1, digest, -1, SQLITE_TRANSIENT); sqlite3_step(stmt); sqlite3_finalize(stmt);
-    sqlite3_exec(db, "DELETE FROM items WHERE id IN (SELECT id FROM items ORDER BY created DESC LIMIT -1 OFFSET 300)", NULL, NULL, NULL);
+    sqlite3_exec(db, "DELETE FROM items WHERE id IN (SELECT id FROM items ORDER BY created DESC, id DESC LIMIT -1 OFFSET 300)", NULL, NULL, NULL);
     free(data);
 }
 

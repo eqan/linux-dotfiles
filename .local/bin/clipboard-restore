@@ -14,3 +14,5 @@ if not row:
 kind, data = row
 target = "image/png" if kind == "image" else "UTF8_STRING"
 subprocess.run(["xclip", "-selection", "clipboard", "-t", target, "-i"], input=data, check=True)
+subprocess.run(["sleep", "0.06"])
+subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=False)

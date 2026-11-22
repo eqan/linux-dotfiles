@@ -109,8 +109,10 @@ class Picker(Gtk.Window):
                 "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"
             ], input=record[0], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
             if result.returncode == 0 and result.stdout:
-                with open(path, "wb") as thumbnail:
+                temp_path = f"{path}.tmp"
+                with open(temp_path, "wb") as thumbnail:
                     thumbnail.write(result.stdout)
+                os.replace(temp_path, path)
                 changed = True
         if changed:
             self.refresh()
@@ -153,6 +155,7 @@ class Picker(Gtk.Window):
         card.add(box); return card
 
     def activate(self, _grid, child):
+        self.hide()
         subprocess.Popen([os.path.expanduser("~/.local/bin/clipboard-restore"), str(child.item_id)])
         self.destroy()
 
