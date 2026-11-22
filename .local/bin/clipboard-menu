@@ -98,7 +98,7 @@ class Picker(Gtk.Window):
             except Exception:
                 box.pack_start(Gtk.Label(label="[image]"), False, False, 0)
         else:
-            label = Gtk.Label(label=self.preview(row).replace("\n", "  ")[:400])
+            label = Gtk.Label(label=self.preview(row)[:400])
             label.set_xalign(0); label.set_line_wrap(True); label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
             box.pack_start(label, True, True, 0)
         card.add(box); return card
