@@ -35,9 +35,5 @@ if command -v clipboardd >/dev/null 2>&1 && ! pgrep -u "$USER" -x clipboardd >/d
 	setsid -f clipboardd
 fi
 
-if command -v copyq >/dev/null 2>&1 && ! pgrep -u "$USER" -x copyq >/dev/null 2>&1; then
-	setsid -f copyq --start-server
-fi
-
 # Ensure that xrdb has finished running before moving on to start the WM/DE.
 [ -n "$xrdbpid" ] && wait "$xrdbpid"
