@@ -65,7 +65,7 @@ class Picker(Gtk.Window):
         root.pack_start(scroll, True, True, 0)
         scroll.get_vadjustment().connect("value-changed", self.maybe_load_more)
         self.refresh()
-        GLib.idle_add(self.load_initial)
+        GLib.timeout_add(250, self.load_initial)
         self.search.grab_focus()
 
     def keypress(self, _window, event):
