@@ -35,5 +35,9 @@ if command -v clipboardd >/dev/null 2>&1 && ! pgrep -u "$USER" -x clipboardd >/d
 	setsid -f clipboardd
 fi
 
+if command -v clipboard-menu >/dev/null 2>&1 && ! pgrep -u "$USER" -f 'clipboard-menu --daemon' >/dev/null 2>&1; then
+	setsid -f clipboard-menu --daemon
+fi
+
 # Ensure that xrdb has finished running before moving on to start the WM/DE.
 [ -n "$xrdbpid" ] && wait "$xrdbpid"

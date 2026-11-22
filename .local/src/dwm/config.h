@@ -215,7 +215,7 @@ static const Key keys[] = {
 	/* J and K are automatically bound above in STACKKEYS. */
 	{ MODKEY,			XK_l,          focusstack,              {.i = +1 } },
 	/* Ditto-like native clipboard history overlay. */
-	{ ControlMask|ShiftMask,	XK_h,          spawn,                  {.v = (const char*[]){ "clipboard-menu", NULL } } },
+	{ ControlMask|ShiftMask,	XK_h,          spawn,                  {.v = (const char*[]){ "clipboard-menu", "--show", NULL } } },
 	{ MODKEY|ShiftMask,		XK_h,          setmfact,               {.f = -0.05} },
 	{ MODKEY|ShiftMask,		XK_l,          setmfact,               {.f = +0.05} },
 	{ MODKEY,			XK_semicolon,  shiftview,              { .i = 1 } },

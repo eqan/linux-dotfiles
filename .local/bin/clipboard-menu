@@ -1,8 +1,10 @@
 #!/usr/bin/python
 """Ditto-like searchable X11 clipboard picker for dwm."""
 import os
+import socket
 import sqlite3
 import subprocess
+import sys
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -11,12 +13,13 @@ from gi.repository import Gtk, Gdk, GdkPixbuf, Pango, GLib
 
 DB = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
 PAGE_SIZE = 50
+SOCKET = f"/tmp/clipboard-picker-{os.getuid()}.sock"
 
 def rows(offset=0, limit=PAGE_SIZE):
     if not os.path.exists(DB):
         return []
     with sqlite3.connect(DB) as db:
-        return db.execute("SELECT id,kind,mime,data,created FROM items ORDER BY created DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+        return db.execute("SELECT id,kind,mime,CASE WHEN kind='text' THEN data ELSE NULL END,created FROM items ORDER BY created DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
 
 class Picker(Gtk.Window):
     def __init__(self):
@@ -67,7 +70,7 @@ class Picker(Gtk.Window):
 
     def keypress(self, _window, event):
         if event.keyval == Gdk.KEY_Escape:
-            self.destroy(); return True
+            self.hide(); return True
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             selected = self.grid.get_selected_row()
             if selected: self.activate(self.grid, selected)
@@ -85,6 +88,14 @@ class Picker(Gtk.Window):
         self.items = rows()
         self.refresh()
         return GLib.SOURCE_REMOVE
+
+    def show_picker(self):
+        self.items = []
+        self.offset = 0
+        self.refresh()
+        self.show_all()
+        self.present()
+        self.search.grab_focus()
 
     def maybe_load_more(self, adjustment):
         if self.loading or adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - 120:
@@ -105,15 +116,7 @@ class Picker(Gtk.Window):
         card = Gtk.ListBoxRow(); card.item_id = item_id
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         if kind == "image":
-            try:
-                loader = GdkPixbuf.PixbufLoader.new_with_type("png")
-                loader.write(data); loader.close()
-                pix = loader.get_pixbuf()
-                if pix:
-                    scaled = pix.scale_simple(96, 64, GdkPixbuf.InterpType.BILINEAR)
-                    box.pack_start(Gtk.Image.new_from_pixbuf(scaled), False, False, 0)
-            except Exception:
-                box.pack_start(Gtk.Label(label="[image]"), False, False, 0)
+            box.pack_start(Gtk.Label(label="[image]"), False, False, 0)
         else:
             label = Gtk.Label(label=self.preview(row)[:500])
             label.set_xalign(0); label.set_line_wrap(True); label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -124,6 +127,38 @@ class Picker(Gtk.Window):
         subprocess.Popen([os.path.expanduser("~/.local/bin/clipboard-restore"), str(child.item_id)])
         self.destroy()
 
+if "--show" in sys.argv:
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(SOCKET)
+        client.sendall(b"show")
+        client.close()
+        raise SystemExit(0)
+    except OSError:
+        pass
+
 picker = Picker()
-picker.show_all()
+server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+try:
+    os.unlink(SOCKET)
+except FileNotFoundError:
+    pass
+server.bind(SOCKET)
+server.listen(1)
+server.setblocking(False)
+
+def request(_source, _condition):
+    try:
+        conn, _ = server.accept()
+        conn.recv(16)
+        conn.close()
+        picker.show_picker()
+        GLib.idle_add(picker.load_initial)
+    except BlockingIOError:
+        pass
+    return True
+
+GLib.io_add_watch(server, GLib.IO_IN, request)
+if "--daemon" not in sys.argv:
+    picker.show_picker()
 Gtk.main()
