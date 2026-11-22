@@ -10,12 +10,13 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gtk, Gdk, GdkPixbuf, Pango
 
 DB = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
+PAGE_SIZE = 50
 
-def rows():
+def rows(offset=0, limit=PAGE_SIZE):
     if not os.path.exists(DB):
         return []
     with sqlite3.connect(DB) as db:
-        return db.execute("SELECT id,kind,mime,data,created FROM items ORDER BY created DESC LIMIT 300").fetchall()
+        return db.execute("SELECT id,kind,mime,data,created FROM items ORDER BY created DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
 
 class Picker(Gtk.Window):
     def __init__(self):
@@ -27,6 +28,8 @@ class Picker(Gtk.Window):
         self.set_skip_taskbar_hint(True)
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.connect("key-press-event", self.keypress)
+        self.offset = 0
+        self.loading = False
         self.items = rows()
         self.filtered = self.items
         css = Gtk.CssProvider()
@@ -58,6 +61,7 @@ class Picker(Gtk.Window):
         self.grid.connect("child-activated", self.activate)
         scroll.add(self.grid)
         root.pack_start(scroll, True, True, 0)
+        scroll.get_vadjustment().connect("value-changed", self.maybe_load_more)
         self.refresh()
         self.search.grab_focus()
 
@@ -76,6 +80,16 @@ class Picker(Gtk.Window):
         for child in self.grid.get_children(): self.grid.remove(child)
         for index, row in enumerate(self.filtered): self.grid.add(self.card(index + 1, row))
         self.grid.show_all()
+
+    def maybe_load_more(self, adjustment):
+        if self.loading or adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - 120:
+            return
+        self.loading = True
+        more = rows(self.offset + len(self.items))
+        if more:
+            self.items.extend(more)
+            self.refresh()
+        self.loading = False
 
     @staticmethod
     def preview(row):
