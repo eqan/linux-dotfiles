@@ -10,13 +10,14 @@ home_dir=${HOME:?HOME is not set}
 command -v pacman >/dev/null 2>&1 || { echo 'Arch pacman is required.' >&2; exit 1; }
 
 sudo pacman -S --needed --noconfirm \
-	base-devel git rsync \
+	base-devel git github-cli rsync \
+	gnupg isync msmtp neomutt pass \
 	bluez bluez-utils \
 	ly os-prober \
 	mpv ffmpeg v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
 	python-gobject gtk3 xdg-desktop-portal xdg-desktop-portal-gtk xdg-utils lf \
-	xclip maim nsxiv \
+	xclip maim nsxiv xdotool \
 	adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
 
 if ! command -v yay >/dev/null 2>&1; then
@@ -27,7 +28,9 @@ if ! command -v yay >/dev/null 2>&1; then
 	trap - EXIT
 fi
 yay -S --needed \
-	zen-browser-bin gtk-theme-arc-gruvbox-git \
+	mutt-wizard \
+	zen-browser-bin \
+	glues \
 	xdg-desktop-portal-termfilechooser-hunkyburrito-git
 
 mkdir -p "$home_dir/.config" "$home_dir/.local"
@@ -35,10 +38,20 @@ cp -a "$repo_dir/.config/." "$home_dir/.config/"
 cp -a "$repo_dir/.local/." "$home_dir/.local/"
 cp -a "$repo_dir/.xprofile" "$repo_dir/.zprofile" "$home_dir/"
 
+# Mutt Wizard follows MBSYNCRC, while some isync setups still look for
+# ~/.config/isyncrc. Keep both paths pointed at the same future config.
+mkdir -p "$home_dir/.config/mbsync"
+if [ ! -e "$home_dir/.config/isyncrc" ] && [ ! -L "$home_dir/.config/isyncrc" ]; then
+	ln -s mbsync/config "$home_dir/.config/isyncrc"
+fi
+
 # Use lf in a floating st terminal for directory-open requests.
 if command -v xdg-mime >/dev/null 2>&1; then
 	xdg-mime default file.desktop inode/directory
 fi
+
+# Connect Glues to the private notes repository when GitHub CLI is signed in.
+"$home_dir/.config/larbs/setup-glues-notes"
 
 find "$home_dir/.local/bin" -type f -exec chmod 755 {} +
 find "$home_dir/.config/larbs" -type f -exec chmod 755 {} +
@@ -46,12 +59,6 @@ find "$home_dir/.config/larbs" -type f -exec chmod 755 {} +
 sudo systemctl enable --now bluetooth.service
 systemctl --user daemon-reload
 systemctl --user enable --now bluetooth-autoconnect.service
-
-if command -v gsettings >/dev/null 2>&1; then
-	gsettings set org.gnome.desktop.interface gtk-theme 'Arc-Gruvbox'
-	gsettings set org.gnome.desktop.interface font-name 'Roboto 10'
-	gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
-fi
 
 "$home_dir/.local/bin/zen-tune"
 "$home_dir/.config/larbs/build-suckless"
@@ -62,5 +69,7 @@ if command -v dwmblocks >/dev/null 2>&1; then
 	setsid -f dwmblocks
 fi
 echo 'Linux dotfiles installed.'
+echo 'For terminal email setup, run: setup-mutt-wizard'
+echo 'For initial mail sync, run: mail-sync'
 echo 'Run this once for the graphical login screen and GRUB/Windows menu:'
 echo "  sudo $home_dir/.config/larbs/install-system-boot"
