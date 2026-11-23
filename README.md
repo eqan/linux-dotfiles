@@ -14,7 +14,9 @@ and machine-specific login and boot setup.
   and configuration live under `.local/src/`. st keeps 2,000 lines of
   scrollback; `Alt+Up` and `Alt+Down` move through it one line at a time,
   `Alt+PageUp` and `Alt+PageDown` move a screenful, and the mouse wheel also
-  scrolls through history. Codex CLI is configured to retain terminal history.
+  scrolls through history. Zsh provides Tab completion with an interactive
+  selection menu and inline history suggestions while typing. Codex CLI is
+  configured to retain terminal history.
 - **Glues notes sync:** Glues opens the private `eqan/notes` Git notebook by
   default. Setup uses GitHub CLI credentials, clones the notebook to `~/notes`
   when needed, and saves the Git backend settings in Glues config.
@@ -178,7 +180,7 @@ files and user dotfiles need their own backup.
 | `Super+Shift+Space` | Toggle floating for the focused window |
 | `Super+F` | Toggle fullscreen |
 | `Super+Q` | Close the focused window |
-| `Super+Shift+Q` | Open the system action menu |
+| `Super+Shift+Q` | Open the system action menu, including shutdown and reboot |
 | `Ctrl+Shift+H` | Open or hide clipboard history |
 | `Super+Ctrl+B` | Open the Bluetooth menu |
 | `Super+Ctrl+Shift+B` | Show Bluetooth connection status |

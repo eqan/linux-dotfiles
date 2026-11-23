@@ -11,6 +11,7 @@ command -v pacman >/dev/null 2>&1 || { echo 'Arch pacman is required.' >&2; exit
 
 sudo pacman -S --needed --noconfirm \
 	base-devel git github-cli rsync \
+	zsh zsh-autosuggestions zsh-completions \
 	gnupg isync msmtp neomutt pass \
 	bluez bluez-utils \
 	ly os-prober \
@@ -36,7 +37,14 @@ yay -S --needed \
 mkdir -p "$home_dir/.config" "$home_dir/.local"
 cp -a "$repo_dir/.config/." "$home_dir/.config/"
 cp -a "$repo_dir/.local/." "$home_dir/.local/"
-cp -a "$repo_dir/.xprofile" "$repo_dir/.zprofile" "$home_dir/"
+cp -a "$repo_dir/.xprofile" "$repo_dir/.zprofile" "$repo_dir/.zshenv" "$home_dir/"
+
+# Keep lf ordered by newest modification time, with the timestamp visible.
+lf_config="$home_dir/.config/lf/lfrc"
+if [ -f "$lf_config" ] && ! grep -q '^set sortby time$' "$lf_config"; then
+	printf '%s\n' 'set sortby time' 'set reverse true' 'set info time' | cat - "$lf_config" > "$lf_config.tmp"
+	mv "$lf_config.tmp" "$lf_config"
+fi
 
 # Mutt Wizard follows MBSYNCRC, while some isync setups still look for
 # ~/.config/isyncrc. Keep both paths pointed at the same future config.
