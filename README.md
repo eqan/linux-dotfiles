@@ -37,9 +37,11 @@ and machine-specific login and boot setup.
   workspaces with alternating gray rows and no entry numbering.
 - **Status bar:** a dark Gruvbox bar uses Roboto Mono with matching Font
   Awesome 7 solid and brand icons, evenly spaced status groups, and readable
-  values for volume (including while muted), network, Bluetooth, CPU, memory,
-  battery, and local time. Volume controls cap the sink at 100%. Several blocks
-  have click actions.
+  values for volume (including while muted), screen brightness, network,
+  Bluetooth, CPU, memory, battery, and local time. Brightness is read from the
+  kernel backlight device. Fn+Home and Fn+End adjust brightness through
+  systemd-logind. Volume controls cap the sink at 100%. Several blocks have
+  click actions. The system timezone is Europe/Paris.
 - **Bluetooth:** a dmenu controller powers the adapter, scans, pairs, trusts,
   and connects devices. A user service retries trusted devices periodically.
 - **Audio:** PipeWire provides audio; hardware media keys and dwm shortcuts
@@ -192,6 +194,9 @@ files and user dotfiles need their own backup.
 | `Super+F11` | Open the Insta360 camera view |
 | `Super+P` | Toggle MPD playback |
 | `Super+[` / `Super+]` | Seek MPD playback backward / forward |
+
+Typing `shutdown` in the `Super+D` or `Super+S` command search uses the same
+passwordless shutdown action as the system menu.
 
 Number keys also support workspace toggling and moving windows between
 workspaces with the additional `Ctrl` modifier. Volume and playback controls

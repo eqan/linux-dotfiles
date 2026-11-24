@@ -9,6 +9,8 @@ home_dir=${HOME:?HOME is not set}
 [ "$(uname -s)" = Linux ] || { echo 'This installer targets Linux.' >&2; exit 1; }
 command -v pacman >/dev/null 2>&1 || { echo 'Arch pacman is required.' >&2; exit 1; }
 
+sudo timedatectl set-timezone Europe/Paris
+
 sudo pacman -S --needed --noconfirm \
 	base-devel git github-cli rsync \
 	zsh zsh-autosuggestions zsh-completions \
@@ -70,6 +72,7 @@ fi
 
 find "$home_dir/.local/bin" -type f -exec chmod 755 {} +
 find "$home_dir/.config/larbs" -type f -exec chmod 755 {} +
+"$home_dir/.config/larbs/install-power-actions"
 
 sudo systemctl enable --now bluetooth.service
 sudo systemctl enable --now power-profiles-daemon.service
