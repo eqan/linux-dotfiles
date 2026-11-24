@@ -13,13 +13,13 @@ sudo pacman -S --needed --noconfirm \
 	base-devel git github-cli rsync \
 	zsh zsh-autosuggestions zsh-completions \
 	gnupg isync msmtp neomutt pass \
-	bluez bluez-utils \
+	bluez bluez-utils power-profiles-daemon \
 	ly os-prober \
 	mpv ffmpeg v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
 	python-gobject gtk3 xdg-desktop-portal xdg-desktop-portal-gtk xdg-utils lf \
 	xclip maim nsxiv xdotool \
-	adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
+	terminus-font adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
 
 if ! command -v yay >/dev/null 2>&1; then
 	tmp_dir=$(mktemp -d)
@@ -38,13 +38,20 @@ mkdir -p "$home_dir/.config" "$home_dir/.local"
 cp -a "$repo_dir/.config/." "$home_dir/.config/"
 cp -a "$repo_dir/.local/." "$home_dir/.local/"
 cp -a "$repo_dir/.xprofile" "$repo_dir/.zprofile" "$repo_dir/.zshenv" "$home_dir/"
+chmod 755 "$home_dir/.config/x210ai/x210ai-power"
 
 # Keep lf ordered by newest modification time, with the timestamp visible.
 lf_config="$home_dir/.config/lf/lfrc"
-if [ -f "$lf_config" ] && ! grep -q '^set sortby time$' "$lf_config"; then
-	printf '%s\n' 'set sortby time' 'set reverse true' 'set info time' | cat - "$lf_config" > "$lf_config.tmp"
-	mv "$lf_config.tmp" "$lf_config"
-fi
+mkdir -p "$(dirname "$lf_config")"
+touch "$lf_config"
+sed -i -E '/^[[:space:]]*set[[:space:]]+(sortby|reverse|info)([[:space:]]|$)/d' "$lf_config"
+cat >> "$lf_config" <<'EOF'
+
+# Sort newest modified files first and show their timestamps.
+set sortby time
+set reverse true
+set info time
+EOF
 
 # Mutt Wizard follows MBSYNCRC, while some isync setups still look for
 # ~/.config/isyncrc. Keep both paths pointed at the same future config.
@@ -65,16 +72,19 @@ find "$home_dir/.local/bin" -type f -exec chmod 755 {} +
 find "$home_dir/.config/larbs" -type f -exec chmod 755 {} +
 
 sudo systemctl enable --now bluetooth.service
+sudo systemctl enable --now power-profiles-daemon.service
 systemctl --user daemon-reload
 systemctl --user enable --now bluetooth-autoconnect.service
+systemctl --user enable --now x210ai-power.service
 
 "$home_dir/.local/bin/zen-tune"
 "$home_dir/.config/larbs/build-suckless"
 "$home_dir/.config/larbs/build-clipboard"
 
-if command -v dwmblocks >/dev/null 2>&1; then
+if [ -n "${DISPLAY:-}" ] && [ -x "$home_dir/.local/bin/dwmblocks" ]; then
 	pkill -x dwmblocks 2>/dev/null || true
-	setsid -f dwmblocks
+	PATH="$home_dir/.local/bin/statusbar:$home_dir/.local/bin:$PATH" \
+		setsid -f "$home_dir/.local/bin/dwmblocks"
 fi
 echo 'Linux dotfiles installed.'
 echo 'For terminal email setup, run: setup-mutt-wizard'

@@ -29,18 +29,23 @@ and machine-specific login and boot setup.
 - **Clipboard history:** an XFixes event listener and SQLite database record
   UTF-8 text and PNG images. The searchable overlay keeps up to 300 recent,
   deduplicated entries, rejects whitespace-only text, and preserves copied
-  newlines and text bytes. Image data stays full-size in history; the overlay
+  newlines and text bytes, including while the picker is closed or another
+  application is focused. The daemon and picker share the same cache path.
+  Image data stays full-size in history; the overlay
   generates previews in the background and loads entries in pages of 50. The
   search field is focused when opened, and the overlay is sticky across dwm
   workspaces with alternating gray rows and no entry numbering.
 - **Status bar:** a dark Gruvbox bar uses Roboto Mono with matching Font
   Awesome 7 solid and brand icons, evenly spaced status groups, and readable
   values for volume (including while muted), network, Bluetooth, CPU, memory,
-  battery, and local time. Several blocks have click actions.
+  battery, and local time. Volume controls cap the sink at 100%. Several blocks
+  have click actions.
 - **Bluetooth:** a dmenu controller powers the adapter, scans, pairs, trusts,
   and connects devices. A user service retries trusted devices periodically.
 - **Audio:** PipeWire provides audio; hardware media keys and dwm shortcuts
   control volume and MPD playback.
+- **Power profile:** power-profiles-daemon uses `power-saver` on battery and
+  `balanced` on AC through a user service.
 - **Insta360 Link 2C:** the camera script configures the standard UVC controls
   and opens a low-latency 3840×2160, 30 fps MPV view.
 - **High-DPI X11 setup:** uses the native 2560×1600 panel mode, 186 DPI,
@@ -194,17 +199,22 @@ are bound to the keyboard's media keys as well.
 
 ## Clipboard history
 
-Press `Ctrl+Shift+H` to show the clipboard overlay. The search field receives
-typing immediately and searches the full saved history. Use the arrow keys to
-select a result, press `Enter` to restore it to the focused application, and press `Esc` once
-to close the overlay. Text is restored through the UTF-8 clipboard target;
-images use PNG. The history database is stored under
+Press `Ctrl+Shift+H` to show the clipboard overlay. It opens in insert mode:
+typing searches the full saved history and arrow keys select results. Press
+`Ctrl+Space` to switch to Vim navigation (`j`/`k`, `gg`, `G`, and `Ctrl+d` /
+`Ctrl+u`); press `i` to return to search. `Enter` restores the selection to the
+focused application and `Esc` closes the overlay. It also closes when focus
+moves to another application or a dwm shortcut is used, including a workspace
+switch. Text is restored through the UTF-8 clipboard target; images use PNG.
+The history database is stored under
 `$XDG_CACHE_HOME/clipboard/` (normally `~/.cache/clipboard/`).
 
 The overlay creates 160-pixel-wide image previews without blocking search and
-retains the original PNG for restore. It loads entries in pages of 50 and
-fetches older results as you scroll. Capture is capped at 32 MiB per item, and duplicate
-content moves to the top of the history instead of creating another row.
+retains the original PNG for restore. It loads entries in pages of 50, starts
+loading the next page with about 20 entries left, and preserves your scroll
+position and selection while adding results. Capture is capped at 32 MiB per
+item, and duplicate content moves to the top of the history instead of creating
+another row.
 
 ## File selection and `lf`
 
@@ -214,7 +224,8 @@ chooser while leaving other portal interfaces on GTK. The file chooser opens
 current X session. Zen's profile enables the XDG file-picker preference, and
 both Zen and the X session use the systemd user D-Bus required by the portal.
 
-Useful `lf` sort shortcuts are `s` then `t` for modification time, `s` then
+`lf` opens sorted by most recently modified, with timestamps shown. Useful
+sort shortcuts are `s` then `t` for modification time, `s` then
 `b` for file birth time where supported, and `z` then `r` to reverse the sort
 order. The `file.desktop` entry is the default handler for `inode/directory`.
 
