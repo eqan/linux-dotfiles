@@ -5,6 +5,8 @@ st, dmenu, and dwmblocks. The repository includes the window manager sources,
 desktop scripts, browser and file-picker settings, a custom clipboard history,
 and machine-specific login and boot setup.
 
+<img width="2560" height="1600" alt="image" src="https://github.com/user-attachments/assets/1c595afd-ae9b-4057-8c69-4203d0d2326a" />
+
 ## Desktop features
 
 - **dwm workspace and layout control:** nine workspaces, several tiling
