@@ -38,10 +38,20 @@ and machine-specific login and boot setup.
 - **Status bar:** a dark Gruvbox bar uses Roboto Mono with matching Font
   Awesome 7 solid and brand icons, evenly spaced status groups, and readable
   values for volume (including while muted), screen brightness, network,
-  Bluetooth, CPU, memory, battery, and local time. Brightness is read from the
+  Bluetooth, CPU, memory, battery, and local time with a CET/CEST label.
+  Brightness is read from the
   kernel backlight device. Fn+Home and Fn+End adjust brightness through
   systemd-logind. Volume controls cap the sink at 100%. Several blocks have
-  click actions. The system timezone is Europe/Paris.
+  click actions. The timezone detector runs once when NetworkManager reports
+  full internet access, using the public IP's timezone from ipapi.co, with
+  ipwho.is as a rate-limit fallback. Bootstrap uses Europe/Paris as a fallback;
+  a VPN may resolve to its exit location instead of the laptop's physical
+  location.
+- **Night light:** Gammastep is off by default and controlled manually. Press
+  Super+Shift+F11 to toggle the warm filter on or off, or click the moon status
+  block to choose Night or Off. You can also run `nightlight night`,
+  `nightlight off`, or `nightlight toggle` in a terminal. The command-line
+  package needs no tray or GTK indicator.
 - **Bluetooth:** a dmenu controller powers the adapter, scans, pairs, trusts,
   and connects devices. A user service retries trusted devices periodically.
 - **Audio:** PipeWire provides audio; hardware media keys and dwm shortcuts
@@ -125,10 +135,37 @@ take longer than Mutt Wizard's built-in five-second probe timeout. The bootstrap
 also keeps `~/.config/isyncrc` linked to the Mutt Wizard config, so both the
 configured `MBSYNCRC` path and older isync defaults work. Use `neomutt` to read
 mail and `mail-sync` to synchronize it locally. On the first run, `mail-sync`
-downloads the newest 100 messages first, then retrieves the remaining older
-messages; later runs perform normal incremental syncs. Set
-`MAILSYNC_INITIAL_LATEST` before the first run to change the initial recent-mail
-count.
+pulls newly arrived Inbox messages first, then new mail in other folders, and
+then backfills older messages. Later runs do a normal pull sync. In Neomutt,
+`o` or `O` runs this helper. Gmail’s actual sent mailbox is `[Gmail]/Sent Mail`; the setup helper maps
+Neomutt’s sent-record folder and `gs` shortcut there instead of the generic
+`Sent` label. Mail sync is pull-only so an interrupted local import cannot
+upload duplicate local messages back to Gmail.
+
+The Gmail special-folder shortcuts are `gd` (Drafts), `gj` (Spam/Junk), `gt`
+(Trash), `gs` (Sent), and `ga` (All Mail/Archive). Gmail’s All Mail contains
+messages also labeled Inbox or Sent, so enabling it creates intentional local
+duplicates; it is required for a complete Archive view.
+
+Neomutt uses the included Gruvbox Dark palette, matching the terminal and dwm
+colors. It colors new, flagged, and tagged messages distinctly and keeps the
+sidebar, status line, headers, quotes, and links within the same palette.
+The st default background uses dwm's `#1d2021`; its existing opacity remains
+unchanged.
+
+In Neomutt, use `r` to reply, `R` to reply to all, `m` to compose, and `y` in
+the compose screen to send. Use `gs` for Gmail Sent. Press `Ctrl-B` or `F8` in
+the index or message view to enter link mode. It displays the message text with
+the selected hyperlink highlighted in place, so the company, role, and location
+remain visible while you navigate. LinkedIn company and title links are grouped
+as one entry per job. The mode starts on the first job and shows its title and
+work arrangement separately. Each job title in the displayed message also gets
+its own annotation, for example `Senior Engineer [Switzerland (Remote)]` or
+`Platform Engineer [Not stated]`. Tab or the arrow keys move between jobs and
+other links; `c` copies the selected URL, Enter opens it in Zen Browser, Page
+Up/Page Down scroll the message, and `q`/Escape returns. The Neomutt status
+lines show `Ctrl-B: Links` as a reminder. HTML-only messages also render in the
+pager through Lynx.
 
 ## System updates and recovery
 

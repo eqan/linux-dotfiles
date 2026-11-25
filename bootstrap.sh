@@ -12,10 +12,10 @@ command -v pacman >/dev/null 2>&1 || { echo 'Arch pacman is required.' >&2; exit
 sudo timedatectl set-timezone Europe/Paris
 
 sudo pacman -S --needed --noconfirm \
-	base-devel git github-cli rsync \
+	base-devel git github-cli rsync curl networkmanager \
 	zsh zsh-autosuggestions zsh-completions \
-	gnupg isync msmtp neomutt pass \
-	bluez bluez-utils power-profiles-daemon \
+	gnupg isync lynx msmtp neomutt pass urlview \
+	bluez bluez-utils power-profiles-daemon gammastep \
 	ly os-prober \
 	mpv ffmpeg v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
@@ -73,10 +73,15 @@ fi
 find "$home_dir/.local/bin" -type f -exec chmod 755 {} +
 find "$home_dir/.config/larbs" -type f -exec chmod 755 {} +
 "$home_dir/.config/larbs/install-power-actions"
+sudo systemctl enable --now NetworkManager.service
+"$home_dir/.config/larbs/install-timezone-detection"
 
 sudo systemctl enable --now bluetooth.service
 sudo systemctl enable --now power-profiles-daemon.service
 systemctl --user daemon-reload
+if [ -n "${DISPLAY:-}" ]; then
+	"$home_dir/.local/bin/nightlight" restore
+fi
 systemctl --user enable --now bluetooth-autoconnect.service
 systemctl --user enable --now x210ai-power.service
 
