@@ -5,22 +5,83 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Gtk, Gdk, GdkPixbuf, Pango, GLib
+from gi.repository import Gtk, Gdk, Pango, GLib
 
 DB = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard", "history.db")
 THUMBS = os.path.join(os.path.dirname(DB), "thumbs")
 PAGE_SIZE = 50
+PREFETCH_ROWS = 20
 SOCKET = f"/tmp/clipboard-picker-{os.getuid()}.sock"
+
+def has_visible_text(data):
+    if data is None:
+        return 0
+    for char in bytes(data).decode("utf-8", "replace"):
+        cp = ord(char)
+        if cp <= 0x20 or 0x7f <= cp <= 0x9f:
+            continue
+        if cp in (0x00a0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x2800, 0x3000, 0xfeff):
+            continue
+        if 0x2000 <= cp <= 0x200f or 0x202a <= cp <= 0x202e or 0x2060 <= cp <= 0x206f:
+            continue
+        return 1
+    return 0
 
 def rows(offset=0, limit=PAGE_SIZE):
     if not os.path.exists(DB):
-        return []
+        return [], offset, False
+    visible = []
+    next_offset = offset
     with sqlite3.connect(DB) as db:
-        return db.execute("SELECT id,kind,mime,CASE WHEN kind='text' THEN data ELSE NULL END,created FROM items ORDER BY created DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+        while len(visible) < limit:
+            batch = db.execute(
+                "SELECT id,kind,mime,CASE WHEN kind='text' THEN data ELSE NULL END,created "
+                "FROM items ORDER BY created DESC,id DESC LIMIT ? OFFSET ?",
+                (limit, next_offset),
+            ).fetchall()
+            if not batch:
+                return visible, next_offset, False
+            next_offset += len(batch)
+            visible.extend(
+                row for row in batch
+                if row[1] != "text" or has_visible_text(row[3])
+            )
+            if len(batch) < limit:
+                return visible, next_offset, False
+    return visible, next_offset, True
+
+def search_rows(query, offset=0, limit=PAGE_SIZE, cancelled=None):
+    if not os.path.exists(DB):
+        return [], offset, False
+    query = query.casefold()
+    matches = []
+    scanned = offset
+    with sqlite3.connect(DB) as db:
+        cursor = db.execute(
+            "SELECT id,kind,mime,CASE WHEN kind='text' THEN data ELSE NULL END,created "
+            "FROM items ORDER BY created DESC,id DESC LIMIT -1 OFFSET ?",
+            (offset,),
+        )
+        for row in cursor:
+            if cancelled and cancelled():
+                return [], scanned, False
+            scanned += 1
+            if row[1] == "image":
+                found = query in "image"
+            else:
+                data = row[3]
+                found = has_visible_text(data) and query in bytes(data).decode(
+                    "utf-8", "replace"
+                ).casefold()
+            if found:
+                matches.append(row)
+                if len(matches) >= limit:
+                    return matches, scanned, True
+    return matches, scanned, False
 
 class Picker(Gtk.Window):
     def __init__(self):
@@ -30,10 +91,24 @@ class Picker(Gtk.Window):
         self.set_decorated(False)
         self.set_keep_above(True)
         self.set_skip_taskbar_hint(True)
+        self.set_accept_focus(True)
+        self.set_focus_on_map(True)
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.connect("key-press-event", self.keypress)
-        self.offset = 0
-        self.loading = False
+        self.connect("focus-out-event", self.focus_lost)
+        self.next_offset = 0
+        self.has_more = True
+        self.page_loading = False
+        self.page_request = 0
+        self.active_query = ""
+        self.search_timeout = 0
+        self.navigation_mode = False
+        self.pending_g = False
+        self.pending_g_timeout = 0
+        self.visibility_generation = 0
+        self.result_status = ""
+        self.thumb_worker_active = False
+        self.thumb_pending = False
         self.items = []
         self.filtered = self.items
         css = Gtk.CssProvider()
@@ -51,88 +126,363 @@ class Picker(Gtk.Window):
         root.set_border_width(10)
         self.add(root)
         self.search = Gtk.SearchEntry(placeholder_text="Search clipboard…")
-        self.search.connect("search-changed", self.refresh)
+        self.search.connect("changed", self.queue_search)
+        self.search.connect("key-press-event", self.keypress)
         root.pack_start(self.search, False, False, 0)
-        self.hint = Gtk.Label(label="Enter restore  •  Esc close  •  ↑↓ navigate")
+        self.default_hint = "Type to search  •  ↑↓ select  •  Ctrl+Space Vim mode  •  Enter paste  •  Esc close"
+        self.hint = Gtk.Label(label=self.default_hint)
         self.hint.set_xalign(0)
         root.pack_start(self.hint, False, False, 0)
         scroll = Gtk.ScrolledWindow()
         scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll = scroll
         self.grid = Gtk.ListBox()
         self.grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.grid.set_can_focus(False)
         self.grid.set_activate_on_single_click(True)
         self.grid.connect("row-activated", self.activate)
+        self.grid.connect("key-press-event", self.keypress)
         scroll.add(self.grid)
         root.pack_start(scroll, True, True, 0)
         scroll.get_vadjustment().connect("value-changed", self.maybe_load_more)
         self.refresh()
         self.search.grab_focus()
 
-    def keypress(self, _window, event):
+    def keypress(self, widget, event):
+        if (event.keyval in (Gdk.KEY_space, Gdk.KEY_KP_Space)
+                and event.state & Gdk.ModifierType.CONTROL_MASK):
+            self.navigation_mode = not self.navigation_mode
+            self.pending_g = False
+            self.update_hint()
+            return True
         if event.keyval == Gdk.KEY_Escape:
-            self.hide(); return True
+            self.dismiss_picker()
+            return True
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             selected = self.grid.get_selected_row()
+            if selected is None and self.filtered:
+                selected = self.grid.get_row_at_index(0)
             if selected: self.activate(self.grid, selected)
+            return True
+        if event.keyval in (Gdk.KEY_Up, Gdk.KEY_Down):
+            self.move_selection(-1 if event.keyval == Gdk.KEY_Up else 1)
+            return True
+        if self.navigation_mode:
+            return self.navigation_key(event)
+        if (widget is not self.search and self.get_focus() is not self.search
+                and self.type_into_search(event)):
             return True
         return False
 
-    def refresh(self, *_args):
+    def navigation_key(self, event):
+        key = event.keyval
+        if event.state & Gdk.ModifierType.CONTROL_MASK:
+            if key in (Gdk.KEY_d, Gdk.KEY_D):
+                self.move_selection(max(1, len(self.grid.get_children()) // 2))
+            elif key in (Gdk.KEY_u, Gdk.KEY_U):
+                self.move_selection(-max(1, len(self.grid.get_children()) // 2))
+            return True
+        if key in (Gdk.KEY_j, Gdk.KEY_J):
+            self.pending_g = False
+            self.move_selection(1)
+        elif key in (Gdk.KEY_k, Gdk.KEY_K):
+            self.pending_g = False
+            self.move_selection(-1)
+        elif key == Gdk.KEY_g:
+            if self.pending_g:
+                self.select_index(0)
+                self.pending_g = False
+            else:
+                self.pending_g = True
+                if self.pending_g_timeout:
+                    GLib.source_remove(self.pending_g_timeout)
+                self.pending_g_timeout = GLib.timeout_add(700, self.clear_pending_g)
+        elif key == Gdk.KEY_G:
+            self.pending_g = False
+            self.select_index(len(self.grid.get_children()) - 1)
+        elif key in (Gdk.KEY_i, Gdk.KEY_I):
+            self.navigation_mode = False
+            self.pending_g = False
+            self.update_hint()
+            GLib.idle_add(self.focus_search)
+        else:
+            self.pending_g = False
+        return True
+
+    def clear_pending_g(self):
+        self.pending_g = False
+        self.pending_g_timeout = 0
+        return GLib.SOURCE_REMOVE
+
+    def move_selection(self, delta):
+        children = self.grid.get_children()
+        if not children:
+            return
+        selected = self.grid.get_selected_row()
+        index = children.index(selected) if selected in children else (0 if delta >= 0 else len(children) - 1)
+        self.select_index(index + delta)
+
+    def select_index(self, index):
+        children = self.grid.get_children()
+        if not children:
+            return
+        row = children[max(0, min(index, len(children) - 1))]
+        self.grid.select_row(row)
+        allocation = row.get_allocation()
+        adjustment = self.scroll.get_vadjustment()
+        top = adjustment.get_value()
+        bottom = top + adjustment.get_page_size()
+        if allocation.y < top:
+            adjustment.set_value(allocation.y)
+        elif allocation.y + allocation.height > bottom:
+            adjustment.set_value(allocation.y + allocation.height - adjustment.get_page_size())
+        GLib.idle_add(self.focus_search)
+
+    def update_hint(self):
+        if self.navigation_mode:
+            controls = "VIM  j/k move  gg first  G last  Ctrl+d/u page  i search  Enter paste  Esc close"
+        else:
+            controls = "INSERT  type to search  ↑↓ select  Ctrl+Space Vim  Enter paste  Esc close"
+        suffix = f"  •  {self.result_status}" if self.result_status else ""
+        self.hint.set_text(controls + suffix)
+
+    def focus_lost(self, *_args):
+        generation = self.visibility_generation
+        GLib.idle_add(self.dismiss_if_current, generation)
+        return False
+
+    def dismiss_if_current(self, generation):
+        if generation == self.visibility_generation and self.get_visible():
+            self.dismiss_picker()
+        return GLib.SOURCE_REMOVE
+
+    def dismiss_picker(self):
+        self.visibility_generation += 1
+        self.hide()
+        self.navigation_mode = False
+        self.pending_g = False
+        if self.pending_g_timeout:
+            GLib.source_remove(self.pending_g_timeout)
+            self.pending_g_timeout = 0
+        return GLib.SOURCE_REMOVE
+
+    def type_into_search(self, event):
+        modifiers = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK | Gdk.ModifierType.MOD4_MASK
+        if event.state & modifiers:
+            return False
+        query = self.search.get_text()
+        if event.keyval == Gdk.KEY_BackSpace:
+            self.search.set_text(query[:-1])
+            self.search.set_position(-1)
+            GLib.idle_add(self.focus_search)
+            return True
+        codepoint = Gdk.keyval_to_unicode(event.keyval)
+        if not codepoint:
+            return False
+        self.search.set_text(query + chr(codepoint))
+        self.search.set_position(-1)
+        GLib.idle_add(self.focus_search)
+        return True
+
+    def refresh(self, *_args, preserve_position=True):
+        adjustment = self.scroll.get_vadjustment()
+        scroll_value = adjustment.get_value() if preserve_position else 0
+        selected = self.grid.get_selected_row()
+        selected_id = getattr(selected, "item_id", None) if preserve_position else None
         query = self.search.get_text().casefold()
         self.filtered = [row for row in self.items if not query or query in self.preview(row).casefold()]
         for child in self.grid.get_children(): self.grid.remove(child)
         for row in self.filtered: self.grid.add(self.card(row))
         self.grid.show_all()
+        if self.filtered:
+            selected_row = next(
+                (row for row in self.grid.get_children() if row.item_id == selected_id),
+                None,
+            )
+            if selected_row is None:
+                selected_row = self.grid.get_row_at_index(0)
+            self.grid.select_row(selected_row)
+        GLib.idle_add(self.restore_scroll_position, scroll_value)
+
+    def restore_scroll_position(self, value):
+        adjustment = self.scroll.get_vadjustment()
+        maximum = max(adjustment.get_lower(), adjustment.get_upper() - adjustment.get_page_size())
+        adjustment.set_value(min(value, maximum))
+        return GLib.SOURCE_REMOVE
+
+    def queue_search(self, *_args):
+        query = self.search.get_text().casefold()
+        if query == self.active_query:
+            if self.search_timeout:
+                GLib.source_remove(self.search_timeout)
+                self.search_timeout = 0
+            self.result_status = ""
+            self.update_hint()
+            return
+        if self.search_timeout:
+            GLib.source_remove(self.search_timeout)
+        self.result_status = "Searching…"
+        self.update_hint()
+        self.search_timeout = GLib.timeout_add(100, self.search_changed)
+
+    def search_changed(self):
+        self.search_timeout = 0
+        query = self.search.get_text().casefold()
+        if query == self.active_query:
+            return GLib.SOURCE_REMOVE
+        self.active_query = query
+        self.items = []
+        self.next_offset = 0
+        self.has_more = True
+        self.result_status = "Searching…" if query else ""
+        self.update_hint()
+        self.refresh(preserve_position=False)
+        self.fetch_page(0, True, query)
+        return GLib.SOURCE_REMOVE
 
     def load_initial(self):
-        self.items = rows()
+        self.fetch_page(0, True, self.active_query)
+        return GLib.SOURCE_REMOVE
+
+    def fetch_page(self, offset, initial=False, query=None):
+        if self.page_loading:
+            if not initial:
+                return
+        if query is None:
+            query = self.active_query
+        self.page_request += 1
+        request_id = self.page_request
+        self.page_loading = True
+        threading.Thread(
+            target=self.read_page, args=(offset, initial, query, request_id), daemon=True
+        ).start()
+
+    def read_page(self, offset, initial, query, request_id):
+        try:
+            if query:
+                page = search_rows(
+                    query, offset, cancelled=lambda: request_id != self.page_request
+                )
+            else:
+                page = rows(offset)
+        except sqlite3.Error:
+            page = ([], offset, False)
+        GLib.idle_add(self.page_loaded, *page, initial, query, request_id)
+
+    def page_loaded(self, items, next_offset, has_more, initial, query, request_id):
+        if request_id != self.page_request or query != self.active_query:
+            return GLib.SOURCE_REMOVE
+        if initial:
+            self.items = items
+        else:
+            self.items.extend(items)
+        self.next_offset = next_offset
+        self.has_more = has_more
+        self.page_loading = False
         self.refresh()
+        if query:
+            if not self.items:
+                self.result_status = "No matches"
+            elif self.has_more:
+                self.result_status = f"{len(self.items)} results • scroll for more"
+            else:
+                self.result_status = f"{len(self.items)} result(s)"
+        else:
+            self.result_status = f"{len(self.items)} loaded" if self.has_more else ""
+        self.update_hint()
         GLib.idle_add(self.prepare_thumbnails)
         return GLib.SOURCE_REMOVE
 
     def prepare_thumbnails(self):
-        os.makedirs(THUMBS, mode=0o700, exist_ok=True)
+        if self.thumb_worker_active:
+            self.thumb_pending = True
+            return GLib.SOURCE_REMOVE
+        self.thumb_worker_active = True
+        self.thumb_pending = False
+        items = list(self.items)
+        threading.Thread(target=self.generate_thumbnails, args=(items,), daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def generate_thumbnails(self, items):
         changed = False
-        for item_id, kind, _mime, _data, _created in self.items:
-            if kind != "image":
-                continue
-            path = os.path.join(THUMBS, f"{item_id}.png")
-            if os.path.exists(path):
-                continue
+        try:
+            os.makedirs(THUMBS, mode=0o700, exist_ok=True)
             with sqlite3.connect(DB) as db:
-                record = db.execute("SELECT data FROM items WHERE id=? AND kind='image'", (item_id,)).fetchone()
-            if not record:
-                continue
-            result = subprocess.run([
-                "ffmpeg", "-loglevel", "error", "-f", "image2pipe", "-i", "-",
-                "-vf", "scale=160:-1:force_original_aspect_ratio=decrease",
-                "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"
-            ], input=record[0], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
-            if result.returncode == 0 and result.stdout:
-                temp_path = f"{path}.tmp"
-                with open(temp_path, "wb") as thumbnail:
-                    thumbnail.write(result.stdout)
-                os.replace(temp_path, path)
-                changed = True
-        if changed:
+                for item_id, kind, _mime, _data, _created in items:
+                    if kind != "image":
+                        continue
+                    path = os.path.join(THUMBS, f"{item_id}.png")
+                    if os.path.exists(path):
+                        continue
+                    record = db.execute(
+                        "SELECT data FROM items WHERE id=? AND kind='image'", (item_id,)
+                    ).fetchone()
+                    if not record:
+                        continue
+                    result = subprocess.run([
+                        "ffmpeg", "-loglevel", "error", "-f", "image2pipe", "-i", "-",
+                        "-vf", "scale=160:-1:force_original_aspect_ratio=decrease",
+                        "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1"
+                    ], input=record[0], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, timeout=10)
+                    if result.returncode == 0 and result.stdout:
+                        temp_path = f"{path}.tmp"
+                        with open(temp_path, "wb") as thumbnail:
+                            thumbnail.write(result.stdout)
+                        os.replace(temp_path, path)
+                        changed = True
+        except (OSError, sqlite3.Error, subprocess.SubprocessError):
+            pass
+        GLib.idle_add(self.thumbnails_ready, changed)
+
+    def thumbnails_ready(self, changed):
+        self.thumb_worker_active = False
+        if changed and self.get_visible():
             self.refresh()
+        if self.thumb_pending:
+            GLib.idle_add(self.prepare_thumbnails)
         return GLib.SOURCE_REMOVE
 
     def show_picker(self):
+        # dwm has a native sticky-client rule for this window.
+        self.visibility_generation += 1
+        self.navigation_mode = False
+        self.pending_g = False
+        self.result_status = ""
+        self.stick()
+        self.active_query = ""
+        self.search.set_text("")
+        self.update_hint()
+        self.items = []
+        self.refresh(preserve_position=False)
         self.show_all()
         self.present()
+        self.set_focus(self.search)
         self.search.grab_focus()
-        GLib.timeout_add(250, self.load_initial)
+        GLib.idle_add(self.focus_search)
+        self.fetch_page(0, True, self.active_query)
+
+    def focus_search(self):
+        if self.get_visible():
+            self.set_focus(self.search)
+            self.search.grab_focus()
+        return GLib.SOURCE_REMOVE
+
+    def toggle_picker(self):
+        if self.get_visible():
+            self.dismiss_picker()
+        else:
+            self.show_picker()
 
     def maybe_load_more(self, adjustment):
-        if self.loading or adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - 120:
+        children = self.grid.get_children()
+        if self.page_loading or not self.has_more or not children:
             return
-        self.loading = True
-        more = rows(self.offset + len(self.items))
-        if more:
-            self.items.extend(more)
-            self.refresh()
-        self.loading = False
+        average_row_height = adjustment.get_upper() / len(children)
+        prefetch_distance = max(120, average_row_height * PREFETCH_ROWS)
+        if adjustment.get_value() + adjustment.get_page_size() < adjustment.get_upper() - prefetch_distance:
+            return
+        self.fetch_page(self.next_offset, query=self.active_query)
 
     @staticmethod
     def preview(row):
@@ -141,6 +491,7 @@ class Picker(Gtk.Window):
     def card(self, row):
         item_id, kind, _mime, data, _created = row
         card = Gtk.ListBoxRow(); card.item_id = item_id
+        card.set_can_focus(False)
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         if kind == "image":
             path = os.path.join(THUMBS, f"{item_id}.png")
@@ -155,9 +506,8 @@ class Picker(Gtk.Window):
         card.add(box); return card
 
     def activate(self, _grid, child):
-        self.hide()
+        self.dismiss_picker()
         subprocess.Popen([os.path.expanduser("~/.local/bin/clipboard-restore"), str(child.item_id)])
-        self.destroy()
 
 if "--show" in sys.argv:
     try:
@@ -182,9 +532,14 @@ server.setblocking(False)
 def request(_source, _condition):
     try:
         conn, _ = server.accept()
-        conn.recv(16)
+        command = conn.recv(16)
         conn.close()
-        picker.show_picker()
+        if command == b"hide":
+            picker.dismiss_picker()
+        elif command == b"toggle":
+            picker.toggle_picker()
+        else:
+            picker.show_picker()
     except BlockingIOError:
         pass
     return True

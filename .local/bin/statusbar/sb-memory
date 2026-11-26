@@ -1,0 +1,21 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) notify-send 'Memory' "$(ps axch -o cmd,%mem | awk '{cmd[$1]+=$2} END {for (i in cmd) print i, cmd[i]}' | sort -nrk2 | head)" ;;
+	2) setsid -f "${TERMINAL:-st}" -e htop ;;
+	3) notify-send 'Memory' 'Currently allocated memory. Middle click opens htop.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+used=$(awk '
+	/MemTotal:/ { total = $2 }
+	/MemAvailable:/ { available = $2 }
+	END {
+		if (total > 0)
+			printf "%.0f", (total - available) * 100 / total
+		else
+			printf "--"
+	}' /proc/meminfo)
+printf '%s %s%%\n' "$ICON_MEMORY" "$used"

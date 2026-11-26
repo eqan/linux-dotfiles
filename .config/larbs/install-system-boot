@@ -21,8 +21,7 @@ vconsole_file="/etc/vconsole.conf"
 install -d -m 0755 "$backup_dir"
 cp -a "$grub_defaults" "$backup_dir/grub" 2>/dev/null || true
 cp -a "$vconsole_file" "$backup_dir/vconsole" 2>/dev/null || true
-cp -a /etc/lightdm/lightdm.conf "$backup_dir/lightdm.conf" 2>/dev/null || true
-cp -a /etc/lightdm/lightdm-gtk-greeter.conf "$backup_dir/lightdm-gtk-greeter.conf" 2>/dev/null || true
+cp -a /etc/ly/config.ini "$backup_dir/ly-config" 2>/dev/null || true
 
 mountpoint -q /boot/efi || {
 	echo "/boot/efi is not mounted; refusing to change boot configuration." >&2
@@ -36,10 +35,9 @@ if [ -f "$getty_file" ]; then
 	mv "$getty_file" "$backup_dir/getty/override.conf"
 fi
 install -Dm644 "$user_home/.config/larbs/dwm.desktop" /usr/share/xsessions/dwm.desktop
-install -Dm644 "$user_home/.config/larbs/lightdm.conf" /etc/lightdm/lightdm.conf
-install -Dm644 "$user_home/.config/larbs/lightdm-gtk-greeter.conf" /etc/lightdm/lightdm-gtk-greeter.conf
 install -Dm644 "$user_home/.local/share/thiemeyer_road_to_samarkand.jpg" /boot/grub/larbs-wallpaper.jpg
 
+sed -i '/^setfont[[:space:]]/d' "$vconsole_file"
 if grep -q '^FONT=' "$vconsole_file" 2>/dev/null; then
 	sed -i 's/^FONT=.*/FONT=ter-132n/' "$vconsole_file"
 else
@@ -76,10 +74,9 @@ elif ! grep -q '^GRUB_BACKGROUND=' "$grub_defaults"; then
 fi
 
 systemctl daemon-reload
-systemctl disable getty@tty1.service ly@tty1.service 2>/dev/null || true
-systemctl enable lightdm.service
-timedatectl set-timezone Europe/Paris
+systemctl disable getty@tty1.service lightdm.service 2>/dev/null || true
+systemctl enable ly@tty1.service
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Arch --recheck
 grub-mkconfig -o /boot/grub/grub.cfg
 
-echo "Installed LightDM login screen and dwm session; regenerated GRUB. Backup: $backup_dir"
+echo "Configured LY with the large Terminus console font and dwm session; regenerated GRUB. Backup: $backup_dir"

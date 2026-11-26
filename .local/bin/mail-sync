@@ -1,0 +1,107 @@
+#!/bin/sh
+# Prioritize new Inbox mail, then synchronize other new mail before old mail.
+
+set -eu
+
+config=${MBSYNCRC:-${XDG_CONFIG_HOME:-$HOME/.config}/mbsync/config}
+state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/mutt-wizard
+initial_done=$state_dir/initial-sync-complete
+sync_lock=$state_dir/mail-sync.lock
+sync_log=$state_dir/mail-sync.log
+mail_root=${XDG_DATA_HOME:-$HOME/.local/share}/mail
+export PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/password-store}"
+
+mode=${1:-manual}
+case "$mode" in
+	manual|--startup|--background) ;;
+	*)
+		echo "Usage: ${0##*/} [--startup|--background]" >&2
+		exit 2
+		;;
+esac
+
+[ -r "$config" ] || {
+	echo "mbsync config not found: $config" >&2
+	exit 1
+}
+
+mkdir -p "$state_dir"
+if [ "${MAIL_SYNC_LOCK_HELD:-0}" != 1 ]; then
+	exec 9>"$sync_lock"
+	if ! flock -n 9; then
+		if [ "$mode" = manual ]; then
+			echo 'A mail sync is already running.' >&2
+			exit 1
+		fi
+		echo 'A mail sync is already running; opening the local mailbox.'
+		exit 0
+	fi
+fi
+
+if pgrep -x mbsync >/dev/null 2>&1; then
+	if [ "${MAIL_SYNC_LOCK_HELD:-0}" != 1 ]; then
+		flock -u 9
+	fi
+	if [ "$mode" = manual ]; then
+		echo 'mbsync is already running; wait for it to finish before starting another sync.' >&2
+		exit 1
+	fi
+	echo 'mbsync is already running; opening the local mailbox.'
+	exit 0
+fi
+
+if [ "$mode" = --startup ]; then
+	# Keep the lock open in the child so duplicate startup hooks cannot launch
+	# competing syncs. NeoMutt can open its local mailbox immediately.
+	script_path=$(command -v "${0##*/}" || true)
+	[ -n "$script_path" ] || script_path=$0
+	MAIL_SYNC_LOCK_HELD=1 nohup "$script_path" --background >>"$sync_log" 2>&1 </dev/null &
+	echo 'Opening local mail; the priority Inbox sync is running in the background.'
+	exit 0
+fi
+
+# Clear only stale isync locks, after confirming there is no active mbsync.
+find "$mail_root" -type f -name '.mbsyncstate.lock' -delete 2>/dev/null || true
+
+channels=$(awk '$1 == "Channel" {print $2}' "$config")
+if [ -z "$channels" ]; then
+	echo "No mbsync channels found in $config" >&2
+	exit 1
+fi
+
+sync_new_inboxes() {
+	for channel in $channels; do
+		mbsync -c "$config" --pull --new "$channel:INBOX"
+	done
+}
+
+sync_initial_mail() {
+	echo 'Syncing new Inbox mail first...'
+	sync_new_inboxes
+	echo 'Syncing remaining new mail...'
+	mbsync -c "$config" --pull --new -a
+	echo 'Backfilling older mail...'
+	mbsync -c "$config" --pull --old -a
+	touch "$initial_done"
+}
+
+run_background_sync() {
+	if [ ! -e "$initial_done" ]; then
+		sync_initial_mail
+	else
+		echo 'Syncing remaining mail...'
+		mbsync -c "$config" --pull -a
+	fi
+}
+
+if [ "$mode" = --background ]; then
+	run_background_sync
+	exit 0
+fi
+
+if [ ! -e "$initial_done" ]; then
+	sync_initial_mail
+else
+	echo 'Syncing mail...'
+	mbsync -c "$config" --pull -a
+fi

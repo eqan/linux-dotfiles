@@ -1,0 +1,40 @@
+#!/bin/sh
+# Adjust the active session's panel backlight through systemd-logind.
+
+set -eu
+
+direction=${1:-}
+case $direction in
+	up|down) ;;
+	*) exit 2 ;;
+esac
+
+for device in /sys/class/backlight/*; do
+	[ -r "$device/brightness" ] && [ -r "$device/max_brightness" ] || continue
+	current=$(cat "$device/brightness") || continue
+	maximum=$(cat "$device/max_brightness") || continue
+	case $current in ''|*[!0-9]*) continue ;; esac
+	case $maximum in ''|*[!0-9]*) continue ;; esac
+	[ "$maximum" -gt 0 ] || continue
+	name=${device##*/}
+	step=$(( (maximum + 9) / 10 ))
+	if [ "$direction" = up ]; then
+		target=$((current + step))
+		[ "$target" -le "$maximum" ] || target=$maximum
+	else
+		target=$((current - step))
+		[ "$target" -ge 1 ] || target=1
+	fi
+	if ! output=$(busctl --system call org.freedesktop.login1 \
+		/org/freedesktop/login1/session/auto \
+		org.freedesktop.login1.Session SetBrightness \
+		ssu backlight "$name" "$target" 2>&1); then
+		notify-send -u critical 'Brightness change failed' "$output" 2>/dev/null || :
+		exit 1
+	fi
+	pkill -RTMIN+23 -x dwmblocks 2>/dev/null || :
+	exit 0
+done
+
+notify-send -u critical 'Brightness change failed' 'No panel backlight device was found.' 2>/dev/null || :
+exit 1

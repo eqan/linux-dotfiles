@@ -1,0 +1,195 @@
+#!/bin/sh
+# Configure one account with Luke Smith's Mutt Wizard.
+
+set -eu
+
+export PASSWORD_STORE_DIR="${PASSWORD_STORE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/password-store}"
+
+command -v mw >/dev/null 2>&1 || {
+	echo 'mutt-wizard is not installed. Re-run bootstrap.sh.' >&2
+	exit 1
+}
+
+configure_pull_only() {
+	mbsync_config="${MBSYNCRC:-${XDG_CONFIG_HOME:-$HOME/.config}/mbsync/config}"
+	if [ -f "$mbsync_config" ] && ! grep -q '^Sync Pull$' "$mbsync_config"; then
+		sed -i "/^Channel $email$/a Sync Pull" "$mbsync_config"
+	fi
+}
+
+configure_reply_compose_keys() {
+	muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
+	[ -f "$muttrc" ] || return 0
+	for key_binding in \
+		'bind index,pager r reply' \
+		'bind index,pager R group-reply' \
+		'bind index,pager m mail' \
+		'bind compose y send-message'; do
+		if ! grep -Fqx "$key_binding" "$muttrc"; then
+			printf '%s\n' "$key_binding" >>"$muttrc"
+		fi
+	done
+}
+
+configure_translation_key() {
+	muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
+	[ -f "$muttrc" ] || return 0
+	translation_macro='macro index,pager <F9> "<pipe-message>neomutt-translate<enter>" "translate message to English"'
+	sed -i '/^macro index,pager <F9> .*translate message to English/d' "$muttrc"
+	printf '%s\n' "$translation_macro" >>"$muttrc"
+}
+
+configure_startup_sync() {
+	muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
+	[ -f "$muttrc" ] || return 0
+	if ! grep -Fqx 'set mail_check = 10' "$muttrc"; then
+		printf '%s\n' 'set mail_check = 10' >>"$muttrc"
+	fi
+	if ! grep -Fqx 'set timeout = 10' "$muttrc"; then
+		printf '%s\n' 'set timeout = 10' >>"$muttrc"
+	fi
+	# Keep mail-sync's status text out of NeoMutt's command parser. The
+	# backtick output is parsed as an `echo` command, so semicolons in status
+	# messages can otherwise become NeoMutt command separators.
+	sed -i '/^startup-hook .*mail-sync --startup/d' "$muttrc"
+	printf '%s\n' "startup-hook 'echo \`mail-sync --startup >/dev/null 2>&1\`'" >>"$muttrc"
+}
+
+configure_background_sync_keys() {
+	account_config=$1
+	[ -f "$account_config" ] || return 0
+	sed -i '/^macro index,pager [oO] .*sync mail/d' "$account_config"
+	for sync_macro in \
+		'macro index,pager o "<shell-escape>mail-sync --startup<enter>" "prioritize Inbox, sync remaining mail in background"' \
+		'macro index,pager O "<shell-escape>mail-sync --startup<enter>" "prioritize Inbox, sync remaining mail in background"'; do
+		if ! grep -Fqx "$sync_macro" "$account_config"; then
+			printf '%s\n' "$sync_macro" >>"$account_config"
+		fi
+	done
+}
+
+configure_msmtp_password_store() {
+	msmtp_config="${XDG_CONFIG_HOME:-$HOME/.config}/msmtp/config"
+	[ -f "$msmtp_config" ] || return 0
+	sed -i "s|^passwordeval \"pass |passwordeval \"PASSWORD_STORE_DIR=$PASSWORD_STORE_DIR pass |" "$msmtp_config"
+}
+
+configure_editor() {
+	muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
+	[ -f "$muttrc" ] || return 0
+	for editor_candidate in nvim vim vi; do
+		if command -v "$editor_candidate" >/dev/null 2>&1; then
+			if ! grep -Fqx "set editor = \"$editor_candidate\"" "$muttrc"; then
+				printf 'set editor = "%s"\n' "$editor_candidate" >>"$muttrc"
+			fi
+			return 0
+		fi
+	done
+}
+
+configure_lf_attach_key() {
+	muttrc="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/muttrc"
+	[ -f "$muttrc" ] || return 0
+	command -v lf >/dev/null 2>&1 || return 0
+	# Remove the earlier uppercase lf shortcut when upgrading existing configs.
+	sed -i '/^macro compose A .*Attach files with lf/d' "$muttrc"
+	sed -i '/^bind compose \\eA attach-message$/d' "$muttrc"
+	sed -i 's/-- NeoMutt: Compose  A:lf/-- NeoMutt: Compose  a:lf/' "$muttrc"
+	attach_commands="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/lf-attach.muttrc"
+	attach_macro="macro compose a \"<shell-escape>neomutt-lf-attach pick<enter><enter-command>source $attach_commands<enter><shell-escape>neomutt-lf-attach clean<enter>\" \"Attach files with lf\""
+	if ! grep -Fqx "$attach_macro" "$muttrc"; then
+		printf '%s\n' "$attach_macro" >>"$muttrc"
+	fi
+	if ! grep -Fqx 'bind compose \ea attach-file' "$muttrc"; then
+		printf '%s\n' 'bind compose \ea attach-file' >>"$muttrc"
+	fi
+	if ! grep -Fqx 'set compose_format = "-- NeoMutt: Compose  a:lf  [Approx. msg size: %l   Atts: %a]%>-"' "$muttrc"; then
+		printf '%s\n' 'set compose_format = "-- NeoMutt: Compose  a:lf  [Approx. msg size: %l   Atts: %a]%>-"' >>"$muttrc"
+	fi
+}
+
+printf 'Email address: '
+IFS= read -r email
+[ -n "$email" ] || { echo 'An email address is required.' >&2; exit 1; }
+
+domain=${email#*@}
+domain=$(printf '%s' "$domain" | tr '[:upper:]' '[:lower:]')
+google_account=false
+case "$domain" in
+	gmail.com|googlemail.com)
+		google_account=true
+		;;
+	*)
+		printf 'Is this a Google/Gmail account? [y/N] '
+		IFS= read -r answer
+		case "$answer" in
+			y|Y|yes|YES) google_account=true ;;
+		esac
+		;;
+esac
+
+if [ "$google_account" = true ]; then
+	cat <<'EOF'
+
+Google accounts require an App Password here; your normal Gmail password
+and browser login will not work with Mutt Wizard.
+
+1. Open: https://myaccount.google.com/apppasswords
+2. Create an App Password (2-Step Verification must be enabled).
+3. When Mutt Wizard prompts, paste the 16-character value without spaces.
+   Enter the same value at both hidden prompts. Do not put it in a command.
+
+EOF
+	# Gmail folder discovery can exceed mw's five-second probe timeout. -f
+	# uses the standard mailbox names and avoids that false login failure.
+	mw -f -a "$email"
+	configure_msmtp_password_store
+	account_config="${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts/$email.muttrc"
+	if [ -f "$account_config" ]; then
+		sed -i 's|^set record = "+Sent"$|set record = "+[Gmail]/Sent Mail"|' "$account_config"
+		sed -i 's|^set postponed = "+Drafts"$|set postponed = "+[Gmail]/Drafts"|' "$account_config"
+		sed -i 's|^set trash = "+Trash"$|set trash = "+[Gmail]/Trash"|' "$account_config"
+		sed -i 's|^mailboxes .*|mailboxes "=INBOX" "=[Gmail]/Drafts" "=[Gmail]/Spam" "=[Gmail]/Trash" "=[Gmail]/Sent Mail" "=[Gmail]/Starred" "=[Gmail]/All Mail"|' "$account_config"
+	if ! grep -q 'go to Gmail sent mail' "$account_config"; then
+		cat >>"$account_config" <<'EOF'
+macro index,pager gs "<change-folder>=[Gmail]/Sent Mail<enter>" "go to Gmail sent mail"
+macro index,pager gd "<change-folder>=[Gmail]/Drafts<enter>" "go to Gmail drafts"
+macro index,pager gj "<change-folder>=[Gmail]/Spam<enter>" "go to Gmail spam"
+macro index,pager gt "<change-folder>=[Gmail]/Trash<enter>" "go to Gmail trash"
+macro index,pager ga "<change-folder>=[Gmail]/All Mail<enter>" "go to Gmail archive"
+macro index,pager Ms ";<save-message>=[Gmail]/Sent Mail<enter>" "move mail to Gmail sent mail"
+macro index,pager Cs ";<copy-message>=[Gmail]/Sent Mail<enter>" "copy mail to Gmail sent mail"
+macro index,pager Ma ";<save-message>=[Gmail]/All Mail<enter>" "move mail to Gmail archive"
+macro index,pager Ca ";<copy-message>=[Gmail]/All Mail<enter>" "copy mail to Gmail archive"
+macro index,pager \cb "<pipe-message>urlview<return>" "open links in message"
+macro index,pager <F8> "<pipe-message>urlview<return>" "open links in message"
+EOF
+	fi
+	mbsync_config="${MBSYNCRC:-${XDG_CONFIG_HOME:-$HOME/.config}/mbsync/config}"
+	if [ -f "$mbsync_config" ]; then
+		sed -i 's| !"\[Gmail\]/All Mail"||' "$mbsync_config"
+	fi
+	mail_root="${XDG_DATA_HOME:-$HOME/.local/share}/mail/$email"
+	for folder in '[Gmail]/Drafts' '[Gmail]/Spam' '[Gmail]/Trash' '[Gmail]/Sent Mail' '[Gmail]/Starred' '[Gmail]/All Mail'; do
+		mkdir -p "$mail_root/$folder/cur" "$mail_root/$folder/new" "$mail_root/$folder/tmp"
+	done
+	fi
+	configure_background_sync_keys "$account_config"
+	configure_pull_only
+	configure_reply_compose_keys
+	configure_translation_key
+	configure_startup_sync
+	configure_editor
+	configure_lf_attach_key
+	exit 0
+fi
+
+mw -a "$email"
+configure_msmtp_password_store
+configure_pull_only
+configure_reply_compose_keys
+configure_translation_key
+configure_startup_sync
+configure_editor
+configure_lf_attach_key
+configure_background_sync_keys "${XDG_CONFIG_HOME:-$HOME/.config}/mutt/accounts/$email.muttrc"

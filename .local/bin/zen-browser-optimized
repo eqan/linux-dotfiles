@@ -1,7 +1,11 @@
 #!/bin/sh
-# Launch Zen with Intel hardware acceleration available, even from an older
-# dwm process that inherited the former software-rendering workaround.
+# Route Zen's native file dialogs through the XDG portal on the systemd user
+# bus, even when dwm was started with the old private D-Bus session.
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+	export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+export GTK_USE_PORTAL=1
+# Keep Intel hardware acceleration available.
 unset LIBGL_ALWAYS_SOFTWARE MOZ_X11_EGL
 export MOZ_ENABLE_WAYLAND=0
-export GTK_THEME="Adwaita:dark"
 exec /usr/bin/zen-browser "$@"

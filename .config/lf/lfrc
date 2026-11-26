@@ -1,0 +1,10 @@
+# Sort newest modified files first and show their timestamps.
+set sortby time
+set reverse true
+set info time
+
+# Rebuild a selected PDF without links, forms, or other page annotations.
+cmd sanitize-pdf ${{
+	"$HOME/.local/bin/neomutt-sanitize-pdf" "$f"
+}}
+map P sanitize-pdf

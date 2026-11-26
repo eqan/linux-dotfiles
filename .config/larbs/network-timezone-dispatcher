@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run the detector once when NetworkManager reports full internet access.
+
+state=/run/larbs-timezone-online
+
+[ "${2:-}" = connectivity-change ] || exit 0
+
+if [ "${CONNECTIVITY_STATE:-}" != FULL ]; then
+	/usr/bin/rm -f "$state"
+	exit 0
+fi
+
+[ -e "$state" ] && exit 0
+/usr/bin/setsid -f /usr/local/libexec/larbs-timezone-detect >/dev/null 2>&1

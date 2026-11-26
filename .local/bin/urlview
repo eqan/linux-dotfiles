@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""Navigate links inside the current message while keeping its text visible."""
+
+import argparse
+import curses
+from dataclasses import dataclass
+from email import policy
+from email.parser import BytesParser
+from html.parser import HTMLParser
+import locale
+import os
+import re
+import shutil
+import subprocess
+import sys
+import unicodedata
+from urllib.parse import unquote, urlsplit
+
+
+@dataclass
+class Link:
+	url: str
+	label: str
+	start: int
+	end: int
+	location_mode: str = ""
+	job_id: str = ""
+
+	@property
+	def host(self):
+		return urlsplit(self.url).hostname or urlsplit(self.url).netloc
+
+
+class HtmlMessage(HTMLParser):
+	BLOCKS = {
+		"address", "article", "blockquote", "br", "dd", "div", "dl", "dt",
+		"footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr",
+		"li", "ol", "p", "section", "table", "td", "th", "tr", "ul",
+	}
+
+	def __init__(self):
+		super().__init__(convert_charrefs=True)
+		self.chars = []
+		self.links = []
+		self.anchor = None
+		self.hidden = 0
+
+	def append(self, value):
+		for char in value:
+			if char in "\r\n":
+				if self.chars and self.chars[-1] != "\n":
+					self.chars.append("\n")
+			elif char.isspace():
+				if self.chars and self.chars[-1] not in (" ", "\n"):
+					self.chars.append(" ")
+			elif char == "\u034f" or unicodedata.category(char) in ("Cc", "Cf", "Cs"):
+				continue
+			else:
+				self.chars.append(char)
+
+	def handle_starttag(self, tag, attrs):
+		tag = tag.lower()
+		if tag in ("head", "script", "style", "noscript"):
+			self.hidden += 1
+			return
+		if self.hidden:
+			return
+		if tag in self.BLOCKS:
+			self.append("\n")
+		if tag == "li":
+			self.append("• ")
+		if tag == "a":
+			self.anchor = {"url": dict(attrs).get("href", ""), "start": len(self.chars)}
+		elif tag == "img" and self.anchor:
+			alt = dict(attrs).get("alt", "")
+			if alt:
+				self.append(alt)
+
+	def handle_data(self, data):
+		if not self.hidden:
+			self.append(data)
+
+	def handle_endtag(self, tag):
+		tag = tag.lower()
+		if tag in ("head", "script", "style", "noscript") and self.hidden:
+			self.hidden -= 1
+			return
+		if self.hidden:
+			return
+		if tag == "a" and self.anchor:
+			start = self.anchor["start"]
+			end = len(self.chars)
+			label = "".join(self.chars[start:end]).strip()
+			self.links.append((self.anchor["url"], label, start, end))
+			self.anchor = None
+		if tag in self.BLOCKS:
+			self.append("\n")
+
+	def result(self):
+		text = "".join(self.chars).strip()
+		leading = len("".join(self.chars)) - len("".join(self.chars).lstrip())
+		links = [
+			(url, label, max(0, start - leading), max(0, end - leading))
+			for url, label, start, end in self.links
+		]
+		return text, links
+
+
+def parse_message(raw):
+	message = BytesParser(policy=policy.default).parsebytes(raw)
+	html_bodies = []
+	plain_bodies = []
+	for part in message.walk():
+		if part.get_content_disposition() == "attachment" or part.get_content_maintype() != "text":
+			continue
+		try:
+			content = part.get_content()
+		except (LookupError, UnicodeError):
+			continue
+		if part.get_content_subtype() == "html":
+			html_bodies.append(content)
+		elif part.get_content_subtype() == "plain":
+			plain_bodies.append(content)
+
+	# pipe-message can hand us a decoded HTML body without MIME headers.
+	if not html_bodies:
+		body = raw.decode("utf-8", "replace")
+		if re.search(r"<(?:html|body|div|table|a)\b", body, re.I):
+			html_bodies.append(body)
+
+	if html_bodies:
+		parser = HtmlMessage()
+		parser.feed(html_bodies[-1])
+		parser.close()
+		text, raw_links = parser.result()
+		if raw_links:
+			return make_links(text, raw_links)
+
+	text = plain_bodies[0] if plain_bodies else raw.decode("utf-8", "replace")
+	text = text.replace("\r\n", "\n").replace("\r", "\n")
+	text = "".join(
+		char if char in "\n\t" or (char != "\u034f" and unicodedata.category(char) not in ("Cc", "Cf", "Cs")) else " "
+		for char in text
+	)
+	raw_links = []
+	for match in re.finditer(r"https?://[^\s<>\"']+", text, re.I):
+		url = match.group(0).rstrip(".,;:!?) ]}")
+		if url:
+			raw_links.append((url, url, match.start(), match.start() + len(url)))
+	return make_links(text, raw_links)
+
+
+def extract_location_modes(text):
+	pattern = re.compile(
+		r"(?P<place>[^\n()]{1,100}?)\s*\(\s*"
+		r"(?P<mode>remote|hybrid|on[\s-]?site|in[\s-]?office)\s*\)",
+		re.I,
+	)
+	results = []
+	for match in pattern.finditer(text):
+		place = re.split(r"\s*(?:·|•|\||–|—)\s*", match.group("place"))[-1]
+		place = place.strip(" \t,;:-")
+		if not place:
+			continue
+		mode = re.sub(r"[\s-]+", " ", match.group("mode").lower())
+		if mode == "on site":
+			mode = "onsite"
+		elif mode == "in office":
+			mode = "in-office"
+		results.append((match.start(), match.end(), f"{place} ({mode.title()})"))
+	return results
+
+
+def job_id_for_url(url):
+	parsed = urlsplit(url)
+	match = re.search(r"/jobs/view/(\d+)", parsed.path, re.I)
+	if match:
+		return match.group(1)
+	match = re.search(r"jobid[_=](\d+)", unquote(parsed.query), re.I)
+	return match.group(1) if match else ""
+
+
+def job_link_rank(url, label):
+	tracking = unquote(urlsplit(url).query).lower()
+	if "job_posting_" in tracking:
+		return 30
+	if "jobcard_body_" in tracking:
+		return 20
+	if "company_logo_" in tracking:
+		return 0
+	if label.lower() in {"apply", "apply now", "easy apply", "view job", "learn more"}:
+		return 1
+	return 10 + min(len(label), 100) / 100
+
+
+def make_links(text, raw_links):
+	links = []
+	seen_urls = set()
+	jobs = {}
+	locations = extract_location_modes(text)
+	location_by_link = {}
+	location_by_job = {}
+	previous_location_end = 0
+	for location_start, location_end, description in locations:
+		card_links = [
+			index
+			for index, (_, _, start, end) in enumerate(raw_links)
+			if start >= previous_location_end and end <= location_start
+		]
+		for index in card_links[-2:]:
+			job_id = job_id_for_url(raw_links[index][0])
+			if job_id:
+				location_by_job[job_id] = description
+			else:
+				location_by_link[index] = description
+		previous_location_end = location_end
+
+	for index, (url, label, start, end) in enumerate(raw_links):
+		url = url.strip()
+		parsed = urlsplit(url)
+		if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+			continue
+		label = " ".join(label.split()) or parsed.hostname
+		location_mode = location_by_link.get(index, "")
+		job_id = job_id_for_url(url)
+		if job_id:
+			location_mode = location_by_job.get(job_id, location_mode)
+			candidate = (
+				job_link_rank(url, label),
+				Link(url, label, max(0, start), max(0, end), location_mode, job_id),
+			)
+			if job_id not in jobs or candidate[0] > jobs[job_id][0]:
+				jobs[job_id] = candidate
+		elif url not in seen_urls:
+			seen_urls.add(url)
+			links.append(Link(url, label, max(0, start), max(0, end), location_mode))
+
+	links.extend(candidate[1] for candidate in jobs.values())
+	links.sort(key=lambda link: link.start)
+	return text, links
+
+
+def annotate_job_work_modes(text, links):
+	for link in sorted((item for item in links if item.job_id), key=lambda item: item.end, reverse=True):
+		while link.end > link.start and text[link.end - 1].isspace():
+			link.end -= 1
+		annotation = f" [{link.location_mode or 'Not stated'}]"
+		insert_at = min(link.end, len(text))
+		text = text[:insert_at] + annotation + text[insert_at:]
+		for other in links:
+			if other is not link and other.start >= insert_at:
+				other.start += len(annotation)
+				other.end += len(annotation)
+	return text, links
+
+
+def copy_url(url):
+	commands = (
+		["wl-copy"],
+		["xclip", "-selection", "clipboard", "-in"],
+		["xsel", "--clipboard", "--input"],
+	)
+	for command in commands:
+		if not shutil.which(command[0]):
+			continue
+		try:
+			result = subprocess.run(
+				command,
+				input=url,
+				text=True,
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+				timeout=5,
+				check=False,
+			)
+			if result.returncode == 0:
+				return True
+		except (OSError, subprocess.TimeoutExpired):
+			continue
+	return False
+
+
+def char_width(char):
+	if unicodedata.combining(char):
+		return 0
+	return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def layout(text, width):
+	rows = [[]]
+	positions = [(0, 0)] * (len(text) + 1)
+	row = 0
+	column = 0
+	for index, char in enumerate(text):
+		if char == "\n":
+			positions[index] = (row, column)
+			row += 1
+			rows.append([])
+			column = 0
+			positions[index + 1] = (row, column)
+			continue
+		width_of_char = min(width, char_width(char))
+		if column and column + width_of_char > width:
+			row += 1
+			rows.append([])
+			column = 0
+		positions[index] = (row, column)
+		rows[row].append((char, index, column))
+		column += width_of_char
+		positions[index + 1] = (row, column)
+	positions[len(text)] = (row, column)
+	return rows, positions
+
+
+def run_link_mode(screen, text, links):
+	screen.keypad(True)
+	curses.curs_set(0)
+	link_style = curses.A_UNDERLINE
+	try:
+		if curses.has_colors():
+			curses.start_color()
+			curses.use_default_colors()
+			curses.init_pair(1, curses.COLOR_CYAN, -1)
+			link_style = curses.color_pair(1) | curses.A_UNDERLINE
+	except curses.error:
+		pass
+	selected_style = curses.A_REVERSE | curses.A_BOLD
+	selected = next((i for i, link in enumerate(links) if link.job_id), None)
+	if selected is None:
+		selected = next((i for i, link in enumerate(links) if link.location_mode), 0)
+	scroll = 0
+	notice = ""
+	follow_selection = True
+	link_at = [-1] * len(text)
+	for number, link in enumerate(links):
+		for index in range(min(link.start, len(text)), min(link.end, len(text))):
+			link_at[index] = number
+
+	while True:
+		height, screen_width = screen.getmaxyx()
+		width = max(1, screen_width - 1)
+		rows, positions = layout(text, width)
+		visible_height = max(1, height - 4)
+		link_row = positions[min(links[selected].start, len(text))][0]
+		if follow_selection:
+			scroll = max(0, link_row - max(1, visible_height // 3))
+			follow_selection = False
+		scroll = min(scroll, max(0, len(rows) - visible_height))
+
+		screen.erase()
+		title = "Link mode | Tab/↑/↓ move  Enter open  c copy URL  PgUp/PgDn scroll  q return"
+		try:
+			screen.addnstr(0, 0, title, width, curses.A_BOLD)
+			screen.addnstr(1, 0, f"Selected job: {links[selected].label}", width, curses.A_BOLD)
+			selected_location = links[selected].location_mode or "Not stated"
+			screen.addnstr(2, 0, f"Work arrangement: {selected_location}", width, curses.A_BOLD)
+		except curses.error:
+			pass
+		for screen_row in range(visible_height):
+			content_row = scroll + screen_row
+			if content_row >= len(rows):
+				break
+			cells = rows[content_row]
+			start = 0
+			while start < len(cells):
+				char, index, column = cells[start]
+				link_number = link_at[index] if index < len(link_at) else -1
+				style = selected_style if link_number == selected else link_style if link_number >= 0 else curses.A_NORMAL
+				segment = [char]
+				end = start + 1
+				while end < len(cells):
+					next_char, next_index, _ = cells[end]
+					next_link = link_at[next_index] if next_index < len(link_at) else -1
+					next_style = selected_style if next_link == selected else link_style if next_link >= 0 else curses.A_NORMAL
+					if next_style != style:
+						break
+					segment.append(next_char)
+					end += 1
+				try:
+					screen.addstr(screen_row + 3, column, "".join(segment), style)
+				except curses.error:
+					pass
+				start = end
+
+		selected_link = links[selected]
+		status = f"Link {selected + 1}/{len(links)}  {selected_link.label} — {selected_link.host}"
+		if notice:
+			status += f"  |  {notice}"
+		try:
+			screen.addnstr(height - 1, 0, status, width, curses.A_REVERSE)
+		except curses.error:
+			pass
+		screen.refresh()
+		key = screen.getch()
+
+		if key in (10, 13, curses.KEY_ENTER):
+			return selected
+		if key in (ord("c"), ord("C")):
+			notice = "URL copied" if copy_url(links[selected].url) else "Clipboard unavailable"
+			continue
+		if key in (9, curses.KEY_DOWN, curses.KEY_RIGHT, ord("n")):
+			selected = (selected + 1) % len(links)
+			notice = ""
+			follow_selection = True
+			continue
+		if key in (curses.KEY_BTAB, curses.KEY_UP, curses.KEY_LEFT, ord("p")):
+			selected = (selected - 1) % len(links)
+			notice = ""
+			follow_selection = True
+			continue
+		if key in (curses.KEY_NPAGE, ord(" ")):
+			scroll = min(max(0, len(rows) - visible_height), scroll + visible_height - 1)
+			continue
+		if key == curses.KEY_PPAGE:
+			scroll = max(0, scroll - visible_height + 1)
+			continue
+		if key in (ord("q"), ord("Q"), 27):
+			return None
+
+
+def interactive_select(text, links):
+	try:
+		tty = os.open("/dev/tty", os.O_RDWR)
+	except OSError as error:
+		print(f"Cannot start link mode without a terminal: {error}", file=sys.stderr)
+		return None
+	old_stdin = os.dup(0)
+	old_stdout = os.dup(1)
+	try:
+		os.dup2(tty, 0)
+		os.dup2(tty, 1)
+		locale.setlocale(locale.LC_ALL, "")
+		return curses.wrapper(run_link_mode, text, links)
+	finally:
+		os.dup2(old_stdin, 0)
+		os.dup2(old_stdout, 1)
+		os.close(old_stdin)
+		os.close(old_stdout)
+		os.close(tty)
+
+
+def main():
+	parser = argparse.ArgumentParser(description=__doc__)
+	parser.add_argument("--list-only", action="store_true", help="list extracted link context without opening anything")
+	args = parser.parse_args()
+	text, links = parse_message(sys.stdin.buffer.read())
+	if not links:
+		print("No web links found in this message.", file=sys.stderr)
+		return 1
+	text, links = annotate_job_work_modes(text, links)
+	if args.list_only:
+		for number, link in enumerate(links, 1):
+			before = text[max(0, link.start - 70):link.start].split()
+			context = " ".join(before[-10:] + [link.label])
+			print(f"{number:02d}\t{context} — {link.host}")
+		return 0
+
+	selected = interactive_select(text, links)
+	if selected is None:
+		return 0
+	subprocess.Popen(
+		["setsid", "-f", "xdg-open", links[selected].url],
+		stdout=subprocess.DEVNULL,
+		stderr=subprocess.DEVNULL,
+	)
+	return 0
+
+
+if __name__ == "__main__":
+	sys.exit(main())

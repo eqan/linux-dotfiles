@@ -1,0 +1,42 @@
+#!/bin/sh
+# Resolve the public IP's timezone once per online transition.
+
+set -eu
+
+state=/run/larbs-timezone-online
+exec 9>/run/larbs-timezone.lock
+/usr/bin/flock -n 9 || exit 0
+[ ! -e "$state" ] || exit 0
+
+[ "$(/usr/bin/nmcli networking connectivity 2>/dev/null || :)" = full ] || exit 0
+
+valid_zone() {
+	case $1 in
+		''|/*|*..*|*[!A-Za-z0-9_./+-]*) return 1 ;;
+	esac
+	[ -f "/usr/share/zoneinfo/$1" ]
+}
+
+zone=$(/usr/bin/curl --fail --silent --connect-timeout 3 --max-time 8 \
+	https://ipapi.co/timezone/ 2>/dev/null || :)
+zone=$(printf '%s' "$zone" | /usr/bin/tr -d '\r\n')
+
+# ipapi.co can rate-limit lookups. Fall back to another HTTPS lookup and
+# extract only its IANA timezone field without adding a JSON package.
+if ! valid_zone "$zone"; then
+	response=$(/usr/bin/curl --fail --silent --connect-timeout 3 --max-time 8 \
+		'https://ipwho.is/?fields=timezone' 2>/dev/null || :)
+	zone=$(printf '%s' "$response" | /usr/bin/tr '\n' ' ' | \
+		/usr/bin/sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"\\]*\)".*/\1/p')
+fi
+
+valid_zone "$zone" || exit 1
+[ "$(/usr/bin/nmcli networking connectivity 2>/dev/null || :)" = full ] || exit 0
+
+current=$(/usr/bin/timedatectl show --property=Timezone --value)
+if [ "$zone" != "$current" ]; then
+	/usr/bin/timedatectl set-timezone "$zone"
+fi
+
+printf '%s\n' "$zone" >/run/larbs-timezone-online
+/usr/bin/logger -t larbs-timezone "Detected timezone $zone from public IP."

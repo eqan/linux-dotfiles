@@ -13,6 +13,10 @@ if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/x11/xprofile" ]; then
 else
 	. "$HOME/.xprofile"
 fi
-# Activate dbus variables
-dbus-update-activation-environment --all
-dbus-launch ssh-agent dwm
+# Use the systemd user bus so desktop portals and graphical applications share
+# the same D-Bus session.
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+	export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+dbus-update-activation-environment --systemd --all
+exec ssh-agent "$HOME/.local/bin/dwm"

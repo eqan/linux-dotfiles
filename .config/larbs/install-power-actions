@@ -1,0 +1,10 @@
+#!/bin/sh
+# Allow wheel members to invoke the system shutdown command without a prompt.
+
+set -eu
+
+rule_file=$(mktemp)
+trap 'rm -f "$rule_file"' EXIT HUP INT TERM
+printf '%s\n' '%wheel ALL=(root) NOPASSWD: /usr/bin/shutdown' >"$rule_file"
+sudo install -o root -g root -m 0440 "$rule_file" /etc/sudoers.d/larbs-power-actions
+sudo visudo -cf /etc/sudoers.d/larbs-power-actions

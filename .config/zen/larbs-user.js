@@ -12,8 +12,8 @@ user_pref("gfx.canvas.accelerated", true);
 user_pref("media.hardware-video-decoding.enabled", true);
 user_pref("media.hardware-video-decoding.force-enabled", true);
 user_pref("widget.dmabuf.force-enabled", false);
-// Use GTK's direct file picker instead of the portal fallback under dwm.
-user_pref("widget.use-xdg-desktop-portal.file-picker", 0);
+// Use the XDG portal file picker, backed by lf in a floating terminal.
+user_pref("widget.use-xdg-desktop-portal.file-picker", 1);
 user_pref("dom.ipc.processCount", 4);
 user_pref("browser.sessionhistory.max_total_viewers", 2);
 user_pref("browser.sessionstore.interval", 60000);

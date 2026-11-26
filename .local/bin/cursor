@@ -1,2 +1,6 @@
 #!/bin/sh
+if [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+	export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+export GTK_USE_PORTAL=1
 exec "$HOME/.local/opt/cursor/squashfs-root/AppRun" "$@"

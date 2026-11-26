@@ -1,5 +1,5 @@
 #!/bin/sh
-# Monochrome Font Awesome 7 glyphs for the dwmblocks status bar.
+# Font Awesome 7 glyphs shared by the dwmblocks modules.
 # Keep this file data-only so status modules can source it safely.
 
 ICON_BATTERY_FULL=''
@@ -24,9 +24,8 @@ ICON_TASKS=''
 ICON_PACKAGE=''
 ICON_NEWS=''
 ICON_HELP=''
-# Font Awesome 7 removed the legacy Bluetooth private-use glyph; use a clear,
-# consistently sized text indicator instead of a tiny fallback replacement.
-ICON_BLUETOOTH='BT'
+ICON_BLUETOOTH=''
+ICON_NIGHTLIGHT=''
 ICON_CAMERA=''
 ICON_CLIPBOARD=''
 ICON_IMAGE=''

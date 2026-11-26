@@ -1,0 +1,7 @@
+[filechooser]
+cmd=lf-wrapper.sh
+default_dir=/home/e/Downloads
+env=TERMCMD='/home/e/.local/bin/st -n floatterm -g 120x36'
+open_mode=suggested
+save_mode=suggested
+create_help_file=1

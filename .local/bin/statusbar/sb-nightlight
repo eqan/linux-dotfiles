@@ -1,0 +1,11 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) setsid -f "$HOME/.local/bin/nightlight" menu ;;
+	3) notify-send 'Night light' 'Left click selects Night or Off. Super+Shift+F11 toggles the manual filter.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+printf '%s %s\n' "$ICON_NIGHTLIGHT" "$("$HOME/.local/bin/nightlight" status)"

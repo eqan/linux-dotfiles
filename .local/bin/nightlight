@@ -1,0 +1,83 @@
+#!/bin/sh
+# Control the X11 night-light filter and its persistent mode.
+
+set -eu
+
+mode_file="${XDG_STATE_HOME:-$HOME/.local/state}/nightlight/mode"
+
+read_mode() {
+	if [ -r "$mode_file" ]; then
+		cat "$mode_file"
+	else
+		printf 'off\n'
+	fi
+}
+
+save_mode() {
+	mkdir -p "${mode_file%/*}"
+	tmp="$mode_file.$$"
+	printf '%s\n' "$1" >"$tmp"
+	mv -f "$tmp" "$mode_file"
+}
+
+require_gammastep() {
+	if [ ! -x /usr/bin/gammastep ]; then
+		[ "${1:-}" = quiet ] || notify-send 'Night light' 'Install gammastep with: sudo pacman -S --needed gammastep'
+		return 1
+	fi
+}
+
+set_night() {
+	require_gammastep
+	/usr/bin/gammastep -m randr -P -O 4000
+	save_mode night
+}
+
+set_off() {
+	require_gammastep
+	/usr/bin/gammastep -m randr -x
+	save_mode off
+}
+
+case ${1:-menu} in
+	menu)
+		require_gammastep || exit 0
+		choice=$(printf '%s\n' \
+			'Night — warm filter now' \
+			'Off — reset screen colors' | dmenu -i -p 'Night light') || exit 0
+		case $choice in
+			'Night — warm filter now') set_night ;;
+			'Off — reset screen colors') set_off ;;
+		esac
+		;;
+	status)
+		if [ ! -x /usr/bin/gammastep ]; then
+			printf 'SETUP\n'
+			exit 0
+		fi
+		case $(read_mode) in
+			night) printf 'NIGHT\n' ;;
+			*) printf 'OFF\n' ;;
+		esac
+		;;
+	restore)
+		require_gammastep quiet || exit 0
+		case $(read_mode) in
+			night) set_night ;;
+			off) set_off ;;
+			*) set_off ;;
+		esac
+		;;
+	night) set_night ;;
+	off) set_off ;;
+	toggle)
+		case $(read_mode) in
+			night) set_off ;;
+			*) set_night ;;
+		esac
+		;;
+	*)
+		echo "Usage: nightlight [menu|status|restore|toggle|night|off]" >&2
+		exit 2
+		;;
+esac

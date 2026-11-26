@@ -1,0 +1,111 @@
+#!/bin/sh
+# Install the X210Ai update recovery path. Run as root.
+
+set -eu
+
+[ "$(id -u)" -eq 0 ] || {
+	echo "Run this script as root: sudo ~/.config/larbs/install-system-stability" >&2
+	exit 1
+}
+
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root_fs=$(findmnt -nro FSTYPE /)
+root_device=$(findmnt -nro SOURCE /)
+
+[ "$root_fs" = ext4 ] || {
+	echo "Expected the X210Ai's ext4 root filesystem; found $root_fs. Refusing to configure Timeshift automatically." >&2
+	exit 1
+}
+
+pacman -S --needed --noconfirm linux-lts pacman-contrib timeshift
+
+timeshift_config=/etc/timeshift/timeshift.json
+
+if [ ! -s "$timeshift_config" ]; then
+	timeshift --create \
+		--comments "Initial system recovery point" \
+		--snapshot-device "$root_device" \
+		--rsync --scripted --quiet
+fi
+
+[ -s "$timeshift_config" ] || {
+	echo "Timeshift did not create $timeshift_config; no pacman snapshot hook was installed." >&2
+	exit 1
+}
+python - "$timeshift_config" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    config = json.load(stream)
+
+config["do_first_run"] = "false"
+config["btrfs_mode"] = "false"
+config["schedule_hourly"] = "false"
+config["schedule_daily"] = "true"
+config["schedule_weekly"] = "true"
+config["schedule_monthly"] = "false"
+config["schedule_boot"] = "false"
+config["count_daily"] = "3"
+config["count_weekly"] = "2"
+config["stop_cron_emails"] = "true"
+
+temporary = path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as stream:
+    json.dump(config, stream, indent=2)
+    stream.write("\n")
+os.chmod(temporary, 0o600)
+os.replace(temporary, path)
+PY
+
+systemctl enable --now cronie.service
+timeshift --check --scripted
+
+hook_dir=/etc/pacman.d/hooks
+install -d -m 0755 "$hook_dir" /usr/local/libexec
+install -m 0755 "$repo_dir/timeshift-pacman-snapshot" \
+	/usr/local/libexec/larbs-timeshift-pacman-snapshot
+
+cat >"$hook_dir/90-larbs-timeshift-snapshot.hook" <<'EOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Saving a Timeshift recovery point before package changes
+When = PreTransaction
+Exec = /usr/local/libexec/larbs-timeshift-pacman-snapshot
+Depends = timeshift
+AbortOnFail
+EOF
+
+cat >"$hook_dir/99-larbs-paccache.hook" <<'EOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Keeping the three newest package archives for recovery
+When = PostTransaction
+Exec = /usr/bin/paccache -r -k 3
+Depends = pacman-contrib
+EOF
+
+if command -v grub-mkconfig >/dev/null 2>&1 \
+	&& mountpoint -q /boot/efi \
+	&& [ -d /boot/grub ]; then
+	grub-mkconfig -o /boot/grub/grub.cfg
+else
+	echo 'linux-lts is installed. Regenerate GRUB after mounting /boot/efi to add it to the boot menu.'
+fi
+
+echo 'Update recovery is configured: Timeshift snapshots, three cached package versions, and linux-lts.'
+echo 'Use arch-update for deliberate full-system upgrades.'

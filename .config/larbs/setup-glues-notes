@@ -1,0 +1,90 @@
+#!/bin/sh
+# Set up Glues' Git notebook using the signed-in GitHub CLI credentials.
+
+set -eu
+
+notes_dir=${GLUES_NOTES_DIR:-"$HOME/notes"}
+repo_url=https://github.com/eqan/notes.git
+
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status --hostname github.com >/dev/null 2>&1; then
+	echo 'Glues notes setup skipped: sign in with `gh auth login`, then rerun this script.' >&2
+	exit 0
+fi
+
+gh auth setup-git
+
+if [ ! -d "$notes_dir/.git" ]; then
+	if [ -d "$notes_dir" ] && [ -z "$(find "$notes_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+		rmdir "$notes_dir"
+	fi
+	if [ -e "$notes_dir" ]; then
+		echo "Glues notes setup stopped: $notes_dir exists and is not a Git repository." >&2
+		exit 1
+	fi
+	gh repo clone eqan/notes "$notes_dir"
+fi
+
+origin=$(git -C "$notes_dir" remote get-url origin 2>/dev/null || true)
+case "$origin" in
+	'') git -C "$notes_dir" remote add origin "$repo_url" ;;
+	https://github.com/eqan/notes|https://github.com/eqan/notes.git|git@github.com:eqan/notes|git@github.com:eqan/notes.git|ssh://git@github.com/eqan/notes|ssh://git@github.com/eqan/notes.git) ;;
+	*)
+		echo "Glues notes setup stopped: origin for $notes_dir points elsewhere." >&2
+		exit 1
+		;;
+esac
+
+config_dir="$HOME/.glues"
+mkdir -p "$config_dir"
+python3 - "$config_dir/config" "$config_dir/config.csv" "$notes_dir" <<'PY'
+import csv
+import os
+import stat
+import sys
+import tempfile
+
+path, legacy_path, notes_dir = sys.argv[1:]
+values = {}
+
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as source:
+        for line in source:
+            key, separator, value = line.rstrip("\n").partition("=")
+            if separator:
+                values[key] = value
+elif os.path.exists(legacy_path):
+    with open(legacy_path, newline="", encoding="utf-8") as source:
+        reader = csv.DictReader(source)
+        if reader.fieldnames and not {"key", "value"}.issubset(reader.fieldnames):
+            raise SystemExit(f"Unexpected Glues config columns in {legacy_path}")
+        for row in reader:
+            key, value = row.get("key"), row.get("value")
+            if key:
+                values[key] = value or ""
+
+for key, value in (
+    ("last_file_path", ""),
+    ("last_git_path", notes_dir),
+    ("last_git_remote", "origin"),
+    ("last_git_branch", "main"),
+    ("last_theme", "dark"),
+):
+    values[key] = value
+
+mode = stat.S_IMODE(os.stat(path).st_mode) if os.path.exists(path) else 0o600
+fd, temporary = tempfile.mkstemp(prefix="config.", dir=os.path.dirname(path))
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        for key, value in sorted(values.items()):
+            output.write(f"{key}={value}\n")
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
+except BaseException:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+    raise
+PY
+
+echo "Glues Git notebook configured: $notes_dir (origin/main)."

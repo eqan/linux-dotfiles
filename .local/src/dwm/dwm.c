@@ -29,8 +29,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <spawn.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/un.h>
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
@@ -161,6 +163,7 @@ typedef struct {
 	int isterminal;
 	int noswallow;
 	int monitor;
+	int issticky;
 } Rule;
 
 /* Xresources preferences */
@@ -209,6 +212,7 @@ static Atom getatomprop(Client *c, Atom prop);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
+static void clipboard_hide(void);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
 static void incnmaster(const Arg *arg);
@@ -351,6 +355,7 @@ applyrules(Client *c)
 
 	/* rule matching */
 	c->isfloating = 0;
+	c->issticky = 0;
 	c->tags = 0;
 	XGetClassHint(dpy, c->win, &ch);
 	class    = ch.res_class ? ch.res_class : broken;
@@ -365,6 +370,7 @@ applyrules(Client *c)
 			c->isterminal = r->isterminal;
 			c->isfloating = r->isfloating;
 			c->noswallow  = r->noswallow;
+			c->issticky   = r->issticky;
 			c->tags |= r->tags;
 			if ((r->tags & SPTAGMASK) && r->isfloating) {
 				c->x = c->mon->wx + (c->mon->ww / 2 - WIDTH(c) / 2);
@@ -1188,8 +1194,31 @@ keypress(XEvent *e)
 	for (i = 0; i < LENGTH(keys); i++)
 		if (keysym == keys[i].keysym
 		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
-		&& keys[i].func)
+		&& keys[i].func) {
+			/* Keep the clipboard hotkey as a toggle; other WM commands dismiss it. */
+			if (!(keysym == XK_h
+			&& CLEANMASK(ev->state) == (ControlMask|ShiftMask))
+			&& keys[i].func != view && keys[i].func != toggleview)
+				clipboard_hide();
 			keys[i].func(&(keys[i].arg));
+		}
+}
+
+static void
+clipboard_hide(void)
+{
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	int fd;
+
+	if (snprintf(address.sun_path, sizeof address.sun_path,
+	    "/tmp/clipboard-picker-%lu.sock", (unsigned long)getuid()) >=
+	    sizeof address.sun_path)
+		return;
+	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0)
+		return;
+	if (connect(fd, (struct sockaddr *)&address, sizeof address) == 0)
+		(void)write(fd, "hide", 4);
+	close(fd);
 }
 
 void
@@ -1624,7 +1653,7 @@ run(void)
 
 void
 runAutostart(void) {
-	system("killall -q dwmblocks; dwmblocks &");
+	system("pkill -x dwmblocks 2>/dev/null; PATH=\"$HOME/.local/bin/statusbar:$HOME/.local/bin:$PATH\" setsid -f \"$HOME/.local/bin/dwmblocks\"");
 }
 
 void
@@ -2078,6 +2107,7 @@ toggleview(const Arg *arg)
 {
 	unsigned int newtagset = selmon->tagset[selmon->seltags] ^ (arg->ui & TAGMASK);
 
+	clipboard_hide();
 	if (newtagset) {
 		selmon->tagset[selmon->seltags] = newtagset;
 		focus(NULL);
@@ -2394,6 +2424,7 @@ updatewmhints(Client *c)
 void
 view(const Arg *arg)
 {
+	clipboard_hide();
 	if ((arg->ui & TAGMASK) == selmon->tagset[selmon->seltags])
 		return;
 	selmon->seltags ^= 1; /* toggle sel tagset */

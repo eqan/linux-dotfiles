@@ -4,28 +4,74 @@
 
 set -eu
 
+sudo timedatectl set-timezone Europe/Paris
+
 command -v yay >/dev/null 2>&1 || {
 	echo 'yay is required to install the Zen AUR package.' >&2
 	exit 1
 }
 
-yay -S --needed zen-browser-bin gtk-theme-arc-gruvbox-git
+yay -S --needed \
+	zen-browser-bin \
+	xdg-desktop-portal-termfilechooser-hunkyburrito-git
 
 sudo pacman -S --needed \
-	bluez bluez-utils lightdm lightdm-gtk-greeter os-prober \
+	bluez bluez-utils power-profiles-daemon gammastep ly os-prober curl networkmanager \
+	linux-lts pacman-contrib timeshift \
 	mpv ffmpeg v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
-	xclip maim nsxiv clipnotify \
-	adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
+	xdg-desktop-portal xdg-desktop-portal-gtk xdg-utils lf \
+	xclip maim nsxiv \
+	terminus-font adwaita-fonts noto-fonts ttf-roboto ttf-roboto-mono otf-font-awesome
+
+# Replace any upstream Glues package with the personal trimmed build.
+"$HOME/.config/larbs/install-glues-minimal"
+
+# Remove tools and themes superseded by the custom clipboard and LY setup.
+for package in copyq clipnotify gtk-theme-arc-gruvbox-git; do
+	if pacman -Qq "$package" >/dev/null 2>&1; then
+		sudo pacman -Rns --noconfirm "$package"
+	fi
+done
+sudo pacman -S --needed --noconfirm xdg-utils
+
+# LY is the configured login manager; remove the previously installed GTK DM.
+for dm_package in lightdm-gtk-greeter lightdm; do
+	if pacman -Qq "$dm_package" >/dev/null 2>&1; then
+		sudo pacman -Rns --noconfirm "$dm_package"
+	fi
+done
+sudo systemctl disable lightdm.service 2>/dev/null || true
+sudo systemctl enable ly@tty1.service
+
+# Add a maintained kernel fallback, pre-transaction snapshots, and package cache
+# retention before regular package updates are run.
+sudo "$HOME/.config/larbs/install-system-stability"
 
 sudo systemctl enable --now bluetooth.service
+sudo systemctl enable --now power-profiles-daemon.service
+sudo systemctl enable --now NetworkManager.service
+chmod 755 "$HOME/.config/x210ai/x210ai-power"
+"$HOME/.config/larbs/install-power-actions"
+"$HOME/.config/larbs/install-timezone-detection"
 
-# Keep GTK applications consistent with the dwm theme and typography.
-if command -v gsettings >/dev/null 2>&1; then
-	 gsettings set org.gnome.desktop.interface gtk-theme 'Arc-Gruvbox'
-	 gsettings set org.gnome.desktop.interface font-name 'Roboto 10'
-	 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+# Route directory-open requests to lf in the floating st terminal.
+if command -v xdg-mime >/dev/null 2>&1; then
+	xdg-mime default file.desktop inode/directory
 fi
+
+# Keep lf ordered by newest modification time, with the timestamp visible.
+lf_config="$HOME/.config/lf/lfrc"
+mkdir -p "$(dirname "$lf_config")"
+touch "$lf_config"
+sed -i -E '/^[[:space:]]*set[[:space:]]+(sortby|reverse|info)([[:space:]]|$)/d' "$lf_config"
+cat >> "$lf_config" <<'EOF'
+
+# Sort newest modified files first and show their timestamps.
+set sortby time
+set reverse true
+set info time
+EOF
 
 # Apply Zen's tracked acceleration and memory defaults to existing profiles.
 if command -v zen-tune >/dev/null 2>&1; then
@@ -33,27 +79,52 @@ if command -v zen-tune >/dev/null 2>&1; then
 fi
 
 systemctl --user daemon-reload
+systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
+if [ -n "${DISPLAY:-}" ]; then
+	"$HOME/.local/bin/nightlight" restore
+fi
 systemctl --user enable --now bluetooth-autoconnect.service
+systemctl --user enable --now x210ai-power.service
 
 for helper in \
-	btmenu btstatus camview zen-browser-optimized bluetooth-autoconnect clipnotify clipboard-copy clipboard-daemon clipboard-restore \
+	btmenu btstatus camview zen-browser-optimized bluetooth-autoconnect shutdown brightness-step clipboard-copy clipboard-restore \
 	clipboard-images clipboard-menu shortcuts-menu shortcuts-edit \
 	statusbar/sb-camera statusbar/sb-clipboard statusbar/sb-bluetooth \
-	statusbar/sb-volume; do
+	statusbar/sb-volume statusbar/sb-internet statusbar/sb-cpu \
+	statusbar/sb-memory statusbar/sb-battery statusbar/sb-brightness statusbar/sb-nightlight statusbar/sb-clock \
+	nightlight \
+	arch-update; do
 	[ -x "$HOME/.local/bin/$helper" ] || {
 		echo "Missing executable helper: $HOME/.local/bin/$helper" >&2
 		exit 1
 	}
 done
 
+# Remove obsolete clipboard/theme settings left by the old setup.
+for old_file in \
+	"$HOME/.config/copyq/copyq.conf" \
+	"$HOME/.config/copyq/copyq.pub" \
+	"$HOME/.config/copyq/copyq-commands.ini" \
+	"$HOME/.config/copyq/themes/larbs-gruvbox.ini" \
+	"$HOME/.config/larbs/lightdm.conf" \
+	"$HOME/.config/larbs/lightdm-gtk-greeter.conf" \
+	"$HOME/.local/bin/clipboard-daemon" \
+	"$HOME/.config/gtk-2.0/gtkrc" \
+	"$HOME/.config/gtk-4.0/settings.ini"; do
+	[ ! -f "$old_file" ] || unlink "$old_file"
+done
+rmdir "$HOME/.config/copyq/themes" "$HOME/.config/copyq" \
+	"$HOME/.config/gtk-2.0" "$HOME/.config/gtk-4.0" 2>/dev/null || true
+
 "$HOME/.config/larbs/build-suckless"
 "$HOME/.config/larbs/build-clipboard"
 
 # Refresh the status bar without restarting dwm. New dwm keybindings take
 # effect after restarting dwm or logging in again.
-if command -v dwmblocks >/dev/null 2>&1; then
+if [ -n "${DISPLAY:-}" ] && [ -x "$HOME/.local/bin/dwmblocks" ]; then
 	pkill -x dwmblocks 2>/dev/null || true
-	setsid -f dwmblocks
+	PATH="$HOME/.local/bin/statusbar:$HOME/.local/bin:$PATH" \
+		setsid -f "$HOME/.local/bin/dwmblocks"
 fi
 
 echo 'LARBS desktop bootstrap complete.'

@@ -1,0 +1,43 @@
+#!/bin/sh
+
+# A dmenu wrapper script for system functions.
+export WM="dwm"
+case "$(readlink -f /sbin/init)" in
+	*systemd*) ctl='systemctl' ;;
+	*) ctl='loginctl' ;;
+esac
+
+wmpid(){ # This function is needed if there are multiple instances of the window manager.
+	tree="$(pstree -ps $$)"
+	tree="${tree#*$WM(}"
+	echo "${tree%%)*}"
+}
+
+lock(){
+	was_muted="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | grep -o 'MUTED' && echo 1 || echo 0)"
+	mpc pause & pauseallmpv &
+	wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 &
+	slock
+	[ "$was_muted" -eq 0 ] && wpctl set-mute @DEFAULT_AUDIO_SINK@ 0
+	pkill -RTMIN+10 "${STATUSBAR:-dwmblocks}"
+}
+
+run_action(){
+	label="$1"
+	shift
+	if ! output="$("$@" 2>&1)"; then
+		notify-send -u critical "dwm: $label failed" "${output:-The command returned an error.}" 2>/dev/null || :
+	fi
+}
+
+case "$(printf 'Lock\nExit dwm\nRestart dwm\nHibernate\nReboot\nShutdown / Power off\nSuspend\nDisplay off' | dmenu -i -p 'Action: ')" in
+	'Lock') lock ;;
+	'Exit dwm') kill -TERM "$(wmpid)" ;;
+	'Restart dwm') kill -HUP "$(wmpid)" ;;
+	'Hibernate') slock "$ctl" hibernate ;;
+	'Suspend') slock "$ctl" suspend ;;
+	'Reboot') run_action 'Reboot' sudo -n /usr/bin/shutdown --reboot now ;;
+	'Shutdown / Power off') run_action 'Shutdown' sudo -n /usr/bin/shutdown now ;;
+	'Display off') xset dpms force off ;;
+	*) exit 1 ;;
+esac

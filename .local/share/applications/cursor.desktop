@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Cursor
 Comment=AI code editor
-Exec=/home/e/.local/opt/cursor/squashfs-root/AppRun %F
+Exec=/home/e/.local/bin/cursor %F
 Icon=applications-development
 Type=Application
 Categories=Development;IDE;

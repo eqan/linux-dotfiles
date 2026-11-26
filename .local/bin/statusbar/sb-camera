@@ -4,7 +4,7 @@
 
 case $BLOCK_BUTTON in
 	1) setsid -f camview ;;
-	3) notify-send 'Camera' 'The Insta360 Link 2C is connected.' ;;
+	3) notify-send 'Camera' 'Left click opens the Insta360 viewer.' ;;
 	6) setsid -f "$TERMINAL" -e "$EDITOR" "$0" ;;
 esac
 

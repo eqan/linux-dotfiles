@@ -1,0 +1,12 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) notify-send 'Calendar' "$(cal 2>/dev/null || date '+%B %Y')" ;;
+	2) setsid -f "${TERMINAL:-st}" -e calcurse ;;
+	3) notify-send 'Clock' 'Left click shows the calendar; middle click opens calcurse.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+printf '%s %s\n' "$ICON_CLOCK" "$(date '+%a %d %b %H:%M %Z')"

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Deliberate Arch full-upgrade workflow with pre-upgrade recovery records.
+
+set -Eeuo pipefail
+
+if (( EUID == 0 )); then
+	echo 'Run arch-update as your regular user; it will use sudo where needed.' >&2
+	exit 1
+fi
+
+for package in linux-lts pacman-contrib timeshift; do
+	if ! pacman -Q "$package" >/dev/null 2>&1; then
+		echo "Missing $package. Run ~/.config/larbs/install-system-stability first." >&2
+		exit 1
+	fi
+done
+
+for hook in \
+	/etc/pacman.d/hooks/90-larbs-timeshift-snapshot.hook \
+	/etc/pacman.d/hooks/99-larbs-paccache.hook \
+	/usr/local/libexec/larbs-timeshift-pacman-snapshot \
+	/etc/cron.d/timeshift-hourly; do
+	if [[ ! -s "$hook" || ! -r "$hook" ]]; then
+		echo "Missing recovery configuration: $hook. Run ~/.config/larbs/install-system-stability first." >&2
+		exit 1
+	fi
+done
+
+if [[ ! -s /etc/timeshift/timeshift.json ]]; then
+	echo 'Timeshift is not configured. Run ~/.config/larbs/install-system-stability first.' >&2
+	exit 1
+fi
+
+if [[ ! -x /usr/local/libexec/larbs-timeshift-pacman-snapshot ]]; then
+	echo 'The pacman snapshot helper is not executable. Reinstall system stability settings.' >&2
+	exit 1
+fi
+
+if ! systemctl is-active --quiet cronie.service; then
+	echo 'Cronie is not active; start it before updating so scheduled snapshots run.' >&2
+	exit 1
+fi
+
+if [[ ! -r /boot/grub/grub.cfg ]] || ! grep -q vmlinuz-linux-lts /boot/grub/grub.cfg; then
+	echo 'GRUB has no linux-lts entry. Run the system boot installer before updating.' >&2
+	exit 1
+fi
+
+if ! command -v yay >/dev/null 2>&1; then
+	echo 'yay is required so official and AUR packages are upgraded together.' >&2
+	exit 1
+fi
+
+printf '%s\n' 'Review current Arch announcements before upgrading:'
+printf '%s\n' 'https://archlinux.org/news/'
+read -r -p 'Type reviewed to continue: ' answer
+[[ "$answer" == reviewed ]] || {
+	echo 'Upgrade cancelled.'
+	exit 0
+}
+
+state_root=${XDG_STATE_HOME:-"$HOME/.local/state"}/arch-updates
+stamp=$(date +%Y%m%d-%H%M%S)-$$
+state_dir=$state_root/$stamp
+umask 077
+mkdir -p "$state_root"
+mkdir -m 0700 "$state_dir"
+backup_complete=0
+cleanup_incomplete_backup() {
+	if (( backup_complete == 0 )); then
+		rm -rf -- "$state_dir"
+	fi
+}
+trap cleanup_incomplete_backup EXIT
+
+sudo -v
+pacman -Qqe >"$state_dir/packages-explicit.txt"
+pacman -Qqm >"$state_dir/packages-foreign.txt"
+sudo tar --xattrs --acls --numeric-owner -C / -cf - etc \
+	| gzip -1 >"$state_dir/etc.tar.gz"
+backup_complete=1
+trap - EXIT
+
+# Keep the five most recent package/configuration records.
+mapfile -t old_dirs < <(
+	find "$state_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+	| grep -E '^[0-9]{8}-[0-9]{6}-[0-9]+$' \
+	| LC_ALL=C sort -r | tail -n +6
+)
+for old_dir in "${old_dirs[@]}"; do
+	rm -rf -- "$state_root/$old_dir"
+done
+
+printf 'Recovery records saved in %s\n' "$state_dir"
+kernel_before=$(pacman -Q linux linux-lts 2>/dev/null || true)
+if yay -Syu; then
+	upgrade_status=0
+else
+	upgrade_status=$?
+	echo "yay -Syu returned $upgrade_status; showing post-upgrade checks for any partial changes." >&2
+fi
+kernel_after=$(pacman -Q linux linux-lts 2>/dev/null || true)
+
+printf '\n%s\n' '--- pending pacnew/pacsave files ---'
+find /etc -type f \( -name '*.pacnew' -o -name '*.pacsave' \) -print
+
+printf '\n%s\n' '--- failed system services ---'
+systemctl --failed --no-pager || true
+
+printf '\n%s\n' '--- kernel ---'
+printf 'Running: %s\n' "$(uname -r)"
+printf '%s\n' "$kernel_after"
+if [[ "$kernel_before" != "$kernel_after" ]]; then
+	echo 'Kernel packages changed. Reboot when convenient; keep the LTS entry available in GRUB.'
+fi
+
+printf '\nRecovery records: %s\n' "$state_dir"
+echo 'Pacman hooks created a pre-transaction snapshot and retained three package versions.'
+echo 'Review any pacnew files before the next upgrade.'
+exit "$upgrade_status"

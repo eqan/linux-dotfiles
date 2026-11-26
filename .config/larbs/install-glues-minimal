@@ -1,0 +1,25 @@
+#!/bin/sh
+# Install the personal Glues release binary and remove the upstream package.
+
+set -eu
+
+install_dir=${CARGO_HOME:-"$HOME/.local/share/cargo"}/bin
+machine=$(uname -m)
+case "$machine" in
+	x86_64) asset=glues-linux-x86_64 ;;
+	*) echo "No prebuilt Glues release for $machine." >&2; exit 1 ;;
+esac
+
+temporary=$(mktemp)
+trap 'unlink "$temporary"' EXIT
+curl --fail --location --silent --show-error \
+	"https://github.com/eqan/glues-minimal-terminal-note-taker/releases/latest/download/$asset" \
+	-o "$temporary"
+install -Dm755 "$temporary" "$install_dir/glues"
+
+if pacman -Qq glues >/dev/null 2>&1; then
+	sudo pacman -Rns --noconfirm glues
+fi
+
+test -x "$install_dir/glues"
+echo "Installed Glues Minimal at $install_dir/glues."

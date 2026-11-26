@@ -9,7 +9,7 @@ int main(void) {
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) return 1;
     int result = connect(fd, (struct sockaddr *)&address, sizeof address);
-    if (result == 0) (void)write(fd, "show", 4);
+    if (result == 0) (void)write(fd, "toggle", 6);
     close(fd);
     return result == 0 ? 0 : 1;
 }

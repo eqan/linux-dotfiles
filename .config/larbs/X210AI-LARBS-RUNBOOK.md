@@ -42,11 +42,17 @@ The root-owned installer is deliberately separate from LARBS:
 sudo ~/.config/larbs/install-system-boot
 ```
 
-It configures the LightDM GTK login screen on tty1 with the LARBS wallpaper,
-the `dwm` X session,
-and the large console
-font, GRUB graphics, the Arch EFI entry, and regenerates `grub.cfg`. It backs
+It configures LY on tty1 with the large Terminus console font, the `dwm` X
+session, the LARBS wallpaper, GRUB graphics, the Arch EFI entry, and regenerates
+`grub.cfg`. It backs
 up files it changes under `/var/backups/larbs-x210ai/`.
+
+To repair or apply just the 16×32 LY console font without changing bootloader
+settings, run:
+
+```sh
+sudo ~/.config/larbs/set-console-font
+```
 
 After the base LARBS dotfiles are installed, apply the desktop additions with:
 
@@ -54,15 +60,46 @@ After the base LARBS dotfiles are installed, apply the desktop additions with:
 ~/.config/larbs/bootstrap-x210ai
 ```
 
-This installs the Bluetooth, PipeWire, camera, 4K viewer, and status-bar
-requirements, enables Bluetooth and trusted-device auto-connect, verifies the
-new helper scripts, rebuilds dwm/dmenu/st/dwmblocks, restarts dwmblocks, and
-refreshes clipboard history when run inside X. Restart dwm or log in again
-afterward to activate new shortcuts.
+This installs the Bluetooth, PipeWire, power-profile, camera, 4K viewer,
+status-bar, terminal file chooser, and system update recovery requirements. It installs `linux-lts`
+as a GRUB fallback, configures Timeshift snapshots before pacman transactions,
+and retains three cached versions of each package. Browser upload/download dialogs use
+`xdg-desktop-portal-termfilechooser` to open `lf` in a floating `st` window;
+directory-open requests use the `file.desktop` handler. The bootstrap also
+enables Bluetooth and trusted-device auto-connect, verifies helper scripts,
+rebuilds dwm/dmenu/st/dwmblocks, restarts dwmblocks, and refreshes clipboard
+history when run inside X. Log out and back in after changing session startup
+so graphical apps and portal services share the systemd user D-Bus.
 
 The bootstrap installs `zen-browser-bin` through `yay`, configures it as the
 default LARBS browser, and does not delete any old browser profile data.
 Zen’s package policy is retained; browser updates are handled by pacman/yay.
+
+## System updates and recovery
+
+Use `arch-update` from the regular account for routine updates. It pauses for
+an Arch News review, records the installed package selections and `/etc`, then
+runs `yay -Syu` so official and AUR packages are upgraded together. Always use
+a full upgrade; partial upgrades (`pacman -Sy package`) are unsupported. No
+unattended package updater is enabled. See the ArchWiki's [maintenance]
+instructions and [partial-upgrade policy].
+
+After setup, the pacman pre-transaction hook creates a Timeshift rsync snapshot
+and cancels the transaction if the snapshot cannot be made. Scheduled daily and weekly
+snapshots have bounded retention. A post-transaction hook keeps the three
+newest cached archives per package, and GRUB offers `linux-lts` as a fallback
+kernel. After upgrading, inspect `.pacnew` files and reboot after kernel
+updates.
+
+For a bad kernel, select the LTS kernel in GRUB. To restore a previous system
+snapshot, use `sudo timeshift --list` and `sudo timeshift --restore` from a
+bootable system. Snapshots are stored on the internal ext4 disk, so they protect
+against package regressions but not disk failure; keep an external backup and
+an Arch recovery USB. Timeshift excludes `/home` by default, so back up personal
+files and user dotfiles separately.
+
+[maintenance]: https://wiki.archlinux.org/title/System_maintenance
+[partial-upgrade policy]: https://wiki.archlinux.org/title/Partial_upgrade
 
 If starting X manually during recovery, log in directly at the tty as `e`.
 Do not use `su - e` from a root tty: that bypasses the logind seat ownership
@@ -101,9 +138,12 @@ in Neovim so the key list can be edited or transferred to another setup.
 The former guide/tutorial bindings have been replaced by this catalog.
 
 The custom clipboard uses an event-driven C/XFixes backend with SQLite storage,
-modeled after Ditto and clipmenu. Use `Mod+Ctrl+V` for the searchable overlay.
-Enter restores the selected text or image to the focused application; Escape
-closes it. It keeps up to 300 deduplicated entries while preserving MIME types.
+modeled after Ditto and clipmenu. Use `Ctrl+Shift+H` for the searchable overlay.
+The search field is focused on open. The picker closes when focus leaves it or
+a dwm shortcut is used. Type to search; use `Ctrl+Space` to switch to Vim
+navigation (`j`/`k`, `gg`, `G`, `Ctrl+d`/`Ctrl+u`) and `i` to return to search.
+Enter restores the selected item to the focused application; Escape closes the
+picker. It keeps up to 300 deduplicated entries while preserving MIME types.
 
 Install and enable the system service once on a fresh machine:
 

@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Translate a NeoMutt message to English through Google's web endpoint."""
+
+from email import policy
+from email.parser import BytesParser
+from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor
+from html import unescape
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import unicodedata
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+
+class HtmlText(HTMLParser):
+	BLOCKS = {
+		"address", "article", "blockquote", "br", "dd", "div", "dl", "dt",
+		"footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr",
+		"li", "ol", "p", "section", "table", "td", "th", "tr", "ul",
+	}
+
+	def __init__(self):
+		super().__init__(convert_charrefs=True)
+		self.parts = []
+		self.hidden = 0
+
+	def handle_starttag(self, tag, attrs):
+		tag = tag.lower()
+		if tag in ("head", "script", "style", "noscript"):
+			self.hidden += 1
+		elif not self.hidden and tag in self.BLOCKS:
+			self.parts.append("\n")
+
+	def handle_endtag(self, tag):
+		tag = tag.lower()
+		if tag in ("head", "script", "style", "noscript") and self.hidden:
+			self.hidden -= 1
+		elif not self.hidden and tag in self.BLOCKS:
+			self.parts.append("\n")
+
+	def handle_data(self, data):
+		if not self.hidden:
+			self.parts.append(data)
+
+
+def html_to_text(value):
+	parser = HtmlText()
+	parser.feed(value)
+	parser.close()
+	return "".join(parser.parts)
+
+
+def message_text(raw):
+	message = BytesParser(policy=policy.default).parsebytes(raw)
+	plain = []
+	html = []
+	for part in message.walk():
+		if part.is_multipart() or part.get_content_disposition() == "attachment":
+			continue
+		if part.get_content_maintype() != "text":
+			continue
+		try:
+			content = part.get_content()
+		except (LookupError, UnicodeError):
+			continue
+		if part.get_content_subtype() == "plain":
+			plain.append(content)
+		elif part.get_content_subtype() == "html":
+			html.append(content)
+
+	if plain:
+		text = "\n\n".join(plain)
+	elif html:
+		text = html_to_text(html[-1])
+	else:
+		# NeoMutt may pipe the already-decoded body without MIME headers.
+		text = raw.decode("utf-8", "replace")
+		if re.search(r"<(?:html|body|div|table|p|a)\b", text, re.I):
+			text = html_to_text(text)
+
+	text = text.replace("\r\n", "\n").replace("\r", "\n")
+	text = "".join(
+		char if char in "\n\t" or unicodedata.category(char) not in ("Cc", "Cs") else " "
+		for char in text
+	)
+	return re.sub(r"[ \t]+\n", "\n", text).strip()
+
+
+def chunks(text, limit=3500):
+	while len(text) > limit:
+		cut = max(text.rfind("\n", 0, limit), text.rfind(" ", 0, limit))
+		if cut < limit // 2:
+			cut = limit
+		part = text[:cut].strip()
+		if part:
+			yield part
+		text = text[cut:].lstrip()
+	if text:
+		yield text
+
+
+def translate_google_web(segments):
+	def translate(segment):
+		url = "https://translate.googleapis.com/translate_a/single?" + urlencode({
+			"client": "gtx", "sl": "auto", "tl": "en", "dt": "t",
+		})
+		request = Request(
+			url,
+			data=urlencode({"q": segment}).encode("utf-8"),
+			headers={
+				"Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+				"User-Agent": "Mozilla/5.0",
+			},
+			method="POST",
+		)
+		try:
+			with urlopen(request, timeout=15) as response:
+				payload = json.loads(response.read().decode("utf-8"))
+		except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+			raise RuntimeError(f"Google Translate request failed: {error}") from error
+		if not isinstance(payload, list) or not payload or not isinstance(payload[0], list):
+			raise RuntimeError("Google Translate returned an unexpected response.")
+		parts = [item[0] for item in payload[0] if isinstance(item, list) and item and isinstance(item[0], str)]
+		if not parts:
+			raise RuntimeError("Google Translate returned no translated text.")
+		return "".join(parts)
+
+	with ThreadPoolExecutor(max_workers=min(4, len(segments))) as pool:
+		return list(pool.map(translate, segments))
+
+
+def translate_shell(segments):
+	def translate(segment):
+		result = subprocess.run(
+			["trans", "-b", ":en"],
+			input=segment,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.PIPE,
+			text=True,
+			encoding="utf-8",
+			errors="replace",
+			timeout=30,
+			check=False,
+		)
+		if result.returncode or not result.stdout.strip():
+			detail = result.stderr.strip() or "The translator returned no text."
+			raise RuntimeError(detail)
+		return result.stdout.strip()
+
+	with ThreadPoolExecutor(max_workers=min(4, len(segments))) as pool:
+		return list(pool.map(translate, segments))
+
+
+def show(text):
+	pager = shlex.split(os.environ.get("PAGER", "less -R")) or ["less", "-R"]
+	try:
+		subprocess.run(pager, input=text, text=True, encoding="utf-8", errors="replace", check=False)
+	except FileNotFoundError:
+		print(text)
+
+
+def main():
+	text = message_text(sys.stdin.buffer.read())
+	if not text:
+		show("No readable message text was found to translate.")
+		return 1
+
+	segments = list(chunks(text))
+	web_segments = list(chunks(text, limit=5000))
+	print(f"Translating online with Google Translate ({len(web_segments)} sections)...", file=sys.stderr, flush=True)
+	try:
+		translated = translate_google_web(web_segments)
+	except RuntimeError as fast_error:
+		if not shutil.which("trans"):
+			show(f"Translation failed:\n\n{fast_error}")
+			return 1
+		print("Fast endpoint unavailable; retrying through Translate Shell...", file=sys.stderr, flush=True)
+		try:
+			translated = translate_shell(segments)
+		except (RuntimeError, subprocess.TimeoutExpired) as error:
+			show(f"Translation failed:\n\n{error}")
+			return 1
+
+	show("Translated to English (source language detected automatically)\n\n" + "\n\n".join(translated))
+	return 0
+
+
+if __name__ == "__main__":
+	sys.exit(main())

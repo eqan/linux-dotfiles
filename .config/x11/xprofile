@@ -9,26 +9,31 @@ xrandr --dpi 186
 
 # Load the LARBS X resources (including Xft DPI) before starting dwm.
 xrdb -merge "${XDG_CONFIG_HOME:-$HOME/.config}/x11/xresources"
-# Make the selected GTK theme and font visible to applications launched by dwm.
-export GTK_THEME="Arc-Gruvbox"
-export GTK2_RC_FILES="$HOME/.config/gtk-2.0/gtkrc"
+# Prefer the user-built suckless programs and desktop helpers. Status modules
+# live in their own directory, so dwmblocks must be able to resolve `sb-*`.
+export PATH="$HOME/.local/bin/statusbar:$HOME/.local/bin:$PATH"
+# Start or restore the selected blue-light filter mode after X has a display.
+nightlight restore >/dev/null 2>&1 &
+# Make the configured zsh startup files available to terminals launched by dwm.
+export ZDOTDIR="${XDG_CONFIG_HOME:-$HOME/.config}/zsh"
+# Route GTK file dialogs through the XDG portal so the terminal chooser can handle them.
+export GTK_USE_PORTAL=1
 export XDG_CURRENT_DESKTOP="dwm"
 export XDG_SESSION_DESKTOP="dwm"
 # Use the Intel i915 hardware renderer for graphical applications.
 unset LIBGL_ALWAYS_SOFTWARE MOZ_X11_EGL
+
 setbg &			# set the background with the `setbg` script
 #xrdb ${XDG_CONFIG_HOME:-$HOME/.config}/x11/xresources & xrdbpid=$!	# Uncomment to use Xresources colors/settings on startup
 
 # xcompmgr has triggered Intel Xorg rendering failures on this machine
 # (gray-screen/X-session crashes). Keep the session uncomposited for stability.
-autostart="mpd dunst unclutter pipewire remapd"
+# PipeWire runs as a systemd user service with socket activation. Starting it
+# here races systemd for the same sockets and leaves audio unavailable.
+autostart="mpd dunst unclutter remapd"
 
 for program in $autostart; do
-	if [ "$program" = clipboard-daemon ]; then
-		pgrep -u "$USER" -f "$HOME/.local/bin/clipboard-daemon" >/dev/null 2>&1 || "$program" &
-	else
-		pidof -sx "$program" || "$program" &
-	fi
+	pidof -sx "$program" || "$program" &
 done >/dev/null 2>&1
 
 if command -v clipboardd >/dev/null 2>&1 && ! pgrep -u "$USER" -x clipboardd >/dev/null 2>&1; then

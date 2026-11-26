@@ -1,0 +1,24 @@
+#!/bin/sh
+# Select a conservative CPU profile on battery and balanced operation on AC.
+
+set -u
+
+is_on_ac() {
+    for supply in /sys/class/power_supply/AC* /sys/class/power_supply/ADP*; do
+        [ -r "$supply/online" ] || continue
+        [ "$(cat "$supply/online")" = 1 ] && return 0
+    done
+    return 1
+}
+
+apply_profile() {
+    profile=power-saver
+    is_on_ac && profile=balanced
+    current=$(powerprofilesctl get 2>/dev/null || true)
+    [ "$current" = "$profile" ] || powerprofilesctl set "$profile" >/dev/null 2>&1 || true
+}
+
+while :; do
+    apply_profile
+    sleep 30
+done

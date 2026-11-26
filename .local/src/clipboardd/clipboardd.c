@@ -41,21 +41,85 @@ static uint64_t hash_data(const char *kind, const unsigned char *data, size_t le
     return h;
 }
 
-static int mkdir_parent(void) {
+static void cache_dirs(char *base, size_t base_size, char *clipboard, size_t clipboard_size) {
     const char *cache = getenv("XDG_CACHE_HOME");
-    if (!cache) cache = "/tmp";
-    char dir[PATH_MAX];
-    if (getenv("XDG_CACHE_HOME")) snprintf(dir, sizeof dir, "%s/clipboard", cache);
-    else snprintf(dir, sizeof dir, "%s/clipboard-%lu", cache, (unsigned long)getuid());
+    const char *home = getenv("HOME");
+    if (cache && *cache) {
+        snprintf(base, base_size, "%s", cache);
+        snprintf(clipboard, clipboard_size, "%s/clipboard", cache);
+    } else if (home && *home) {
+        snprintf(base, base_size, "%s/.cache", home);
+        snprintf(clipboard, clipboard_size, "%s/.cache/clipboard", home);
+    } else {
+        snprintf(base, base_size, "/tmp");
+        snprintf(clipboard, clipboard_size, "/tmp/clipboard-%lu", (unsigned long)getuid());
+    }
+}
+
+static int mkdir_parent(void) {
+    char base[PATH_MAX], dir[PATH_MAX];
+    cache_dirs(base, sizeof base, dir, sizeof dir);
+    mkdir(base, 0700);
     mkdir(dir, 0700);
     return 0;
 }
 
 static void db_path(char *out, size_t size) {
-    const char *cache = getenv("XDG_CACHE_HOME");
-    if (!cache) cache = "/tmp";
-    if (getenv("XDG_CACHE_HOME")) snprintf(out, size, "%s/clipboard/history.db", cache);
-    else snprintf(out, size, "%s/clipboard-%lu/history.db", cache, (unsigned long)getuid());
+    char base[PATH_MAX], dir[PATH_MAX];
+    cache_dirs(base, sizeof base, dir, sizeof dir);
+    size_t dir_len = strlen(dir);
+    static const char suffix[] = "/history.db";
+    if (dir_len + sizeof suffix > size) {
+        if (size) out[0] = '\0';
+        return;
+    }
+    memcpy(out, dir, dir_len);
+    memcpy(out + dir_len, suffix, sizeof suffix);
+}
+
+static int blank_codepoint(uint32_t cp) {
+    if (cp <= 0x20 || (cp >= 0x7f && cp <= 0x9f)) return 1;
+    if (cp == 0x00a0 || cp == 0x1680 || (cp >= 0x2000 && cp <= 0x200f)) return 1;
+    if (cp == 0x2028 || cp == 0x2029 || (cp >= 0x202a && cp <= 0x202e)) return 1;
+    if (cp == 0x202f || cp == 0x205f || (cp >= 0x2060 && cp <= 0x206f)) return 1;
+    if (cp == 0x2800 || cp == 0x3000 || cp == 0xfeff) return 1;
+    return 0;
+}
+
+static int text_is_blank(const unsigned char *data, size_t len) {
+    for (size_t i = 0; i < len;) {
+        uint32_t cp;
+        size_t width;
+        unsigned char first = data[i];
+
+        if (first < 0x80) {
+            cp = first;
+            width = 1;
+        } else if (first >= 0xc2 && first <= 0xdf) {
+            cp = first & 0x1f;
+            width = 2;
+        } else if (first >= 0xe0 && first <= 0xef) {
+            cp = first & 0x0f;
+            width = 3;
+        } else if (first >= 0xf0 && first <= 0xf4) {
+            cp = first & 0x07;
+            width = 4;
+        } else {
+            return 0;
+        }
+
+        if (i + width > len) return 0;
+        for (size_t j = 1; j < width; j++) {
+            if ((data[i + j] & 0xc0) != 0x80) return 0;
+            cp = (cp << 6) | (data[i + j] & 0x3f);
+        }
+        if ((width == 2 && cp < 0x80) || (width == 3 && cp < 0x800) ||
+            (width == 4 && cp < 0x10000) || (cp >= 0xd800 && cp <= 0xdfff) || cp > 0x10ffff)
+            return 0;
+        if (!blank_codepoint(cp)) return 0;
+        i += width;
+    }
+    return 1;
 }
 
 static void capture(sqlite3 *db) {
@@ -70,7 +134,10 @@ static void capture(sqlite3 *db) {
     size_t len = 0;
     char *data = read_cmd(cmd, &len);
     free(targets);
-    if (!data || !len) { free(data); return; }
+    if (!data || !len || (strcmp(kind, "text") == 0 && text_is_blank((unsigned char *)data, len))) {
+        free(data);
+        return;
+    }
     size_t max_bytes = DEFAULT_MAX_CLIP_BYTES;
     const char *max_env = getenv("CLIPBOARD_MAX_BYTES");
     if (max_env && *max_env) max_bytes = (size_t)strtoull(max_env, NULL, 10);

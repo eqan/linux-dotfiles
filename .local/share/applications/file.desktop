@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=File Manager
+Exec=/home/e/.local/bin/st -n floatterm -g 120x36 -e /usr/sbin/lf %f
+Terminal=false
+MimeType=inode/directory;

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Called by the pacman pre-transaction hook as root.
+
+set -eu
+
+exec /usr/bin/timeshift \
+	--create \
+	--comments "Before pacman package transaction" \
+	--tags D \
+	--scripted \
+	--quiet

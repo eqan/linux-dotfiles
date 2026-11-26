@@ -1,0 +1,55 @@
+# Gruvbox Dark, matched to the dwm/st palette in this dotfiles set.
+# st maps these ANSI names to the exact Gruvbox colors.
+
+set color_directcolor = no
+set sidebar_width = 24
+set index_format = "%2C %Z %?X?A& ? %D %-18.18F %s"
+set date_format = "%Y-%m-%d %H:%M"
+set status_format = "Ctrl-B: Links | -%r-NeoMutt: %D [Msgs:%<M?%M/>%m%<n? New:%n>%<o? Old:%o>%<d? Del:%d>%<F? Flag:%F>%<t? Tag:%t>%<p? Post:%p>%<b? Inc:%b>%<l? %l>]---(%<T?%T/>%s/%S)-%>-(%P)---"
+set pager_format = "Ctrl-B: Links | -%Z- %C/%m: %-20.20n   %s%*  -- (%P)"
+
+color normal color15 color0
+color attachment color11 default
+color bold color15 default
+color error color9 default
+color hdrdefault color14 default
+color indicator color0 color12
+color markers color9 default
+color message color14 default
+color prompt color11 default
+color search color13 color0
+color signature color10 default
+color status color11 color0
+color tilde color8 default
+color tree color8 default
+color underline color12 default
+
+color sidebar_divider color8 color0
+color sidebar_highlight color11 color0
+color sidebar_flagged color9 color0
+color sidebar_new color10 color0
+
+color index color15 color0 .*
+color index_author color12 color0 .*
+color index_subject color15 color0 .*
+color index_number color8 color0
+color index_date color8 color0
+color index_flags color11 color0
+color index_author color10 color0 "~N"
+color index_subject color11 color0 "~N"
+color index color11 color0 "~T"
+color index_author color13 color0 "~T"
+color index_subject color13 color0 "~T"
+color index color10 color0 "~F"
+color index_author color10 color0 "~F"
+color index_subject color10 color0 "~F"
+
+color header color14 default "^(From|To|Cc|Bcc):"
+color header color11 default "^Subject:"
+color header color8 default "^(Date|Message-ID|References):"
+color body color13 default "[[:alnum:]._%+-]+@[[:alnum:].-]+\\.[[:alpha:]]{2,}"
+color body color12 default "(https?|ftp)://[^[:space:]]+"
+color body color2 default "^>.*"
+color body color4 default "^>>.*"
+color body color6 default "^>>>.*"
+color body color3 default "^#.*"

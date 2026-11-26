@@ -1,0 +1,31 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) notify-send 'CPU' "$(ps axch -o cmd,%cpu | awk '{cmd[$1]+=$2} END {for (i in cmd) print i, cmd[i]}' | sort -nrk2 | head)" ;;
+	2) setsid -f "${TERMINAL:-st}" -e htop ;;
+	3) notify-send 'CPU' 'Current processor utilization. Middle click opens htop.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+read_cpu() {
+	awk '/^cpu / { total = 0; for (i = 2; i <= NF; i++) total += $i; print total, $5 + $6; exit }' /proc/stat
+}
+
+set -- $(read_cpu)
+before_total=${1:-0}
+before_idle=${2:-0}
+sleep 0.2
+set -- $(read_cpu)
+after_total=${1:-0}
+after_idle=${2:-0}
+
+total=$((after_total - before_total))
+idle=$((after_idle - before_idle))
+if [ "$total" -gt 0 ]; then
+	usage=$(awk -v total="$total" -v idle="$idle" 'BEGIN { printf "%.0f", (total - idle) * 100 / total }')
+	printf '%s %s%%\n' "$ICON_CPU" "$usage"
+else
+	printf '%s --%%\n' "$ICON_CPU"
+fi

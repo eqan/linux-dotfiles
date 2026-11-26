@@ -1,0 +1,54 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	1) setsid -f "${TERMINAL:-st}" -e nmtui ;;
+	3) notify-send 'Network' 'Left click opens the network menu.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+wifi_up=0
+ethernet_up=0
+if command -v nmcli >/dev/null 2>&1; then
+	if timeout 1 nmcli -t -f TYPE,STATE device 2>/dev/null | grep -q '^wifi:connected$'; then
+		wifi_up=1
+	fi
+	if timeout 1 nmcli -t -f TYPE,STATE device 2>/dev/null | grep -q '^ethernet:connected$'; then
+		ethernet_up=1
+	fi
+fi
+
+if [ "$ethernet_up" -eq 0 ]; then
+	for state in /sys/class/net/e*/operstate; do
+		if [ -r "$state" ] && [ "$(cat "$state")" = up ]; then
+			ethernet_up=1
+			break
+		fi
+	done
+fi
+
+vpn_up=0
+for state in /sys/class/net/tun*/operstate /sys/class/net/wg*/operstate \
+	/sys/class/net/ppp*/operstate /sys/class/net/tailscale*/operstate; do
+	if [ -r "$state" ] && [ "$(cat "$state")" = up ]; then
+		vpn_up=1
+		break
+	fi
+done
+
+if [ "$wifi_up" -eq 1 ]; then
+	strength=$(awk 'NR > 2 { gsub(":", "", $1); printf "%d", $3 * 100 / 70; exit }' /proc/net/wireless 2>/dev/null)
+	if [ -n "$strength" ]; then
+		printf '%s %s%%' "$ICON_WIFI" "$strength"
+	else
+		printf '%s Wi-Fi' "$ICON_WIFI"
+	fi
+elif [ "$ethernet_up" -eq 1 ]; then
+	printf '%s LAN' "$ICON_ETHERNET"
+else
+	printf '%s OFF' "$ICON_NO_NETWORK"
+fi
+
+[ "$vpn_up" -eq 0 ] || printf ' %s' "$ICON_VPN"
+printf '\n'

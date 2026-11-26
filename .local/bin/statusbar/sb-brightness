@@ -1,0 +1,17 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+for device in /sys/class/backlight/*; do
+	[ -r "$device/brightness" ] && [ -r "$device/max_brightness" ] || continue
+	current=$(cat "$device/brightness") || continue
+	maximum=$(cat "$device/max_brightness") || continue
+	case $current in ''|*[!0-9]*) continue ;; esac
+	case $maximum in ''|*[!0-9]*) continue ;; esac
+	[ "$maximum" -gt 0 ] || continue
+	percent=$(( (current * 100 + maximum / 2) / maximum ))
+	printf '%s %s%%\n' "$ICON_BRIGHTNESS" "$percent"
+	exit 0
+done
+
+printf '%s --%%\n' "$ICON_BRIGHTNESS"

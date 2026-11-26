@@ -1,0 +1,13 @@
+#!/bin/sh
+# Let dmenu's command search request a shutdown through the configured sudo rule.
+
+if [ "$#" -eq 0 ]; then
+	set -- now
+fi
+
+if ! output=$(sudo -n /usr/bin/shutdown "$@" 2>&1); then
+	notify-send -u critical 'Shutdown failed' "${output:-The shutdown command failed.}" 2>/dev/null || {
+		printf '%s\n' "Shutdown failed: ${output:-the shutdown command failed.}" >&2
+	}
+	exit 1
+fi

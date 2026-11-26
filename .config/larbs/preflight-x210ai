@@ -24,17 +24,53 @@ check 'EFI System Partition is mounted at /boot/efi' sh -c 'findmnt -no TARGET /
 check 'UEFI boot mode is active' test -d /sys/firmware/efi
 check 'native modesetting is available' test -e /usr/lib/xorg/modules/drivers/modesetting_drv.so
 check 'legacy xf86-video-intel is absent' sh -c '! pacman -Qq xf86-video-intel >/dev/null 2>&1'
+check 'custom dwm binary is installed' test -x "$HOME/.local/bin/dwm"
+check 'custom dwmblocks binary is installed' test -x "$HOME/.local/bin/dwmblocks"
+check 'screen brightness widget is installed and configured' sh -c 'test -x "$HOME/.local/bin/statusbar/sb-brightness" && grep -Fq "sb-brightness" "$HOME/.local/src/dwmblocks/config.h"'
+check 'manual night-light toggle and status block are installed' sh -c 'pacman -Q gammastep >/dev/null 2>&1 && test -x "$HOME/.local/bin/nightlight" && test -x "$HOME/.local/bin/statusbar/sb-nightlight" && grep -Fq "sb-nightlight" "$HOME/.local/src/dwmblocks/config.h" && grep -Fq "nightlight toggle" "$HOME/.local/src/dwm/config.h"'
+check 'brightness keys use the active-session backlight helper' sh -c 'test -x "$HOME/.local/bin/brightness-step" && grep -Fq "XF86XK_MonBrightnessUp" "$HOME/.local/src/dwm/config.h" && grep -Fq "XF86XK_MonBrightnessDown" "$HOME/.local/src/dwm/config.h" && grep -Fq "brightness-step" "$HOME/.local/src/dwm/config.h"'
+check 'NetworkManager is active for timezone detection' systemctl is-active --quiet NetworkManager.service
+check 'timezone connectivity dispatcher is installed' test -x /etc/NetworkManager/dispatcher.d/90-larbs-timezone
+check 'timezone geolocation helper is installed' test -x /usr/local/libexec/larbs-timezone-detect
+check 'dwm session launches the user-built window manager' grep -Fqx 'exec ssh-agent "$HOME/.local/bin/dwm"' "$HOME/.config/x11/xinitrc"
+check 'status modules are on the graphical PATH' grep -Fqx 'export PATH="$HOME/.local/bin/statusbar:$HOME/.local/bin:$PATH"' "$HOME/.config/x11/xprofile"
+check 'dwm autostart launches user dwmblocks with status scripts available' grep -Fq 'setsid -f \"$HOME/.local/bin/dwmblocks\"' "$HOME/.local/src/dwm/dwm.c"
+check 'lf defaults to newest modified files first' grep -Fqx 'set sortby time' "$HOME/.config/lf/lfrc"
+check 'volume key bindings cap output at 100 percent' grep -Eq 'XF86XK_AudioRaiseVolume.*--limit 1\.0' "$HOME/.local/src/dwm/config.h"
+check 'clipboard capture daemon starts with X' grep -Fq 'setsid -f clipboardd' "$HOME/.config/x11/xprofile"
+check 'clipboard daemon default cache matches the picker database' grep -Fq '"%s/.cache/clipboard", home' "$HOME/.local/src/clipboardd/clipboardd.c"
+check 'clipboard picker hides on focus loss and supports Vim mode' sh -c 'grep -Fq "focus-out-event" "$HOME/.local/bin/clipboard-menu" && grep -Fq "Gdk.KEY_space" "$HOME/.local/bin/clipboard-menu"'
+check 'clipboard pages ahead and preserves scroll position' sh -c 'grep -Fq "PREFETCH_ROWS = 20" "$HOME/.local/bin/clipboard-menu" && grep -Fq "restore_scroll_position" "$HOME/.local/bin/clipboard-menu"'
+check 'dwm shortcuts dismiss the clipboard overlay' grep -Fq 'clipboard_hide();' "$HOME/.local/src/dwm/dwm.c"
+check 'shutdown search wrapper is installed' test -x "$HOME/.local/bin/shutdown"
+check 'DWM power menu uses the permitted shutdown command' grep -Fq 'sudo -n /usr/bin/shutdown now' "$HOME/.local/bin/sysact"
+check 'shutdown action is permitted without a prompt' sh -c 'sudo -n -l 2>/dev/null | grep -Fq "NOPASSWD: /usr/bin/shutdown"'
 check 'X210Ai panel is 2560x1600' sh -c 'xrandr --query 2>/dev/null | grep -q "2560x1600"'
 check 'Xft DPI is 186' sh -c 'grep -Eq "^[[:space:]]*Xft\.dpi:[[:space:]]*186" "$HOME/.config/x11/xresources"'
-check 'LightDM greeter is installed' command -v lightdm
+check 'LY starts on tty1' systemctl is-enabled --quiet ly@tty1.service
+check 'large Terminus console font is installed' pacman -Q terminus-font
+check 'large console font is configured for LY' grep -qx 'FONT=ter-132n' /etc/vconsole.conf
 check 'Windows boot probing is installed' command -v os-prober
 check '10_linux is executable' test -x /etc/grub.d/10_linux
 check 'bluetoothctl is installed' command -v bluetoothctl
 check 'Bluetooth service is enabled' systemctl is-enabled --quiet bluetooth.service
+check 'power-profiles-daemon is installed and active' sh -c 'pacman -Q power-profiles-daemon >/dev/null 2>&1 && systemctl is-active --quiet power-profiles-daemon.service'
+check 'X210Ai AC/battery power profile is active' systemctl --user is-active --quiet x210ai-power.service
 check 'camera viewer tools are installed' sh -c 'command -v mpv >/dev/null && command -v v4l2-ctl >/dev/null'
 check 'PipeWire audio stack is installed' sh -c 'pacman -Q pipewire pipewire-pulse pipewire-audio wireplumber >/dev/null 2>&1'
 check 'clipboard image tools are installed' sh -c 'command -v xclip >/dev/null && command -v nsxiv >/dev/null'
+check 'terminal file manager is installed' command -v lf
+check 'XDG portal file chooser packages are installed' sh -c 'pacman -Q xdg-desktop-portal xdg-desktop-portal-gtk xdg-desktop-portal-termfilechooser-hunkyburrito-git >/dev/null 2>&1'
+check 'XDG file chooser routes to termfilechooser' grep -qx 'org.freedesktop.impl.portal.FileChooser=termfilechooser' "$HOME/.config/xdg-desktop-portal/portals.conf"
+check 'Zen uses the XDG file picker' grep -qx 'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);' "$HOME/.config/zen/larbs-user.js"
 check 'Zen browser is installed' command -v zen-browser
+check 'LTS fallback kernel is installed' pacman -Q linux-lts
+check 'Timeshift and package-cache tools are installed' pacman -Q timeshift pacman-contrib
+check 'automatic Timeshift cleanup is enabled' systemctl is-enabled --quiet cronie.service
+check 'Timeshift scheduled snapshot job is installed' test -s /etc/cron.d/timeshift-hourly
+check 'pacman snapshots before package transactions' test -s /etc/pacman.d/hooks/90-larbs-timeshift-snapshot.hook
+check 'package cache retains recent versions' test -s /etc/pacman.d/hooks/99-larbs-paccache.hook
+check 'GRUB config contains the LTS kernel' grep -q vmlinuz-linux-lts /boot/grub/grub.cfg
 
 printf '%s\n' '--- storage ---'
 findmnt -no SOURCE,TARGET,FSTYPE / /boot /boot/efi 2>/dev/null || true

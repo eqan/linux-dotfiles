@@ -11,8 +11,8 @@ features that make it literally the best terminal emulator ever:
 
 ## Bindings for
 
-+ **scrollback** with `alt-↑/↓` or `alt-pageup/down` or `shift` while scrolling the
-  mouse.
++ **scrollback** with `alt-↑/↓`, `alt-pageup/down`, or `shift` while scrolling
+  the mouse. Shift+wheel works even when an application enables mouse reporting.
 + OR **vim-bindings**: scroll up/down in history with `alt-k` and `alt-j`.
   Faster with `alt-u`/`alt-d`.
 + **zoom/change font size**: same bindings as above, but holding down shift as

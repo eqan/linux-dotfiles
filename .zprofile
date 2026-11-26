@@ -4,7 +4,7 @@
 # Profile file, runs on login. Environmental variables are set here.
 
 # Put user-installed programs first, while retaining the LARBS path entries.
-export PATH="$HOME/.local/bin:$PATH:$(find ~/.local/bin -type d | paste -sd ':' -)"
+export PATH="$HOME/.local/bin:$HOME/.local/share/cargo/bin:$PATH:$(find ~/.local/bin -type d | paste -sd ':' -)"
 
 unsetopt PROMPT_SP 2>/dev/null
 
@@ -13,7 +13,6 @@ export EDITOR="nvim"
 export TERMINAL="st"
 export TERMINAL_PROG="st"
 export BROWSER="zen-browser-optimized"
-export TZ="Europe/Paris"
 
 # Change the default crypto/weather monitor sites.
 # export CRYPTOURL="rate.sx"

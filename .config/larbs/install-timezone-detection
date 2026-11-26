@@ -1,0 +1,15 @@
+#!/bin/sh
+# Install the root-owned NetworkManager hook and apply it to an existing link.
+
+set -eu
+
+sudo install -D -o root -g root -m 0755 \
+	"$HOME/.config/larbs/network-timezone-dispatcher" \
+	/etc/NetworkManager/dispatcher.d/90-larbs-timezone
+sudo install -D -o root -g root -m 0755 \
+	"$HOME/.config/larbs/timezone-detect" \
+	/usr/local/libexec/larbs-timezone-detect
+
+if [ "$(nmcli networking connectivity 2>/dev/null || :)" = full ]; then
+	sudo /usr/local/libexec/larbs-timezone-detect
+fi

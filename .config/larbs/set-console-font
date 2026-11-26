@@ -1,0 +1,38 @@
+#!/bin/sh
+# Configure and apply the large Terminus font on LY's virtual console.
+
+set -eu
+
+if [ "$(id -u)" -ne 0 ]; then
+	echo "Run this script with sudo." >&2
+	exit 1
+fi
+
+font=ter-132n
+font_file="/usr/share/kbd/consolefonts/$font.psf.gz"
+vconsole_file=/etc/vconsole.conf
+
+if [ ! -r "$font_file" ]; then
+	echo "Terminus font not found: $font_file" >&2
+	exit 1
+fi
+
+backup_dir="/var/backups/larbs-x210ai/$(date +%Y%m%d-%H%M%S)"
+install -d -m 0755 "$backup_dir"
+if [ -e "$vconsole_file" ]; then
+	cp -a "$vconsole_file" "$backup_dir/vconsole.conf"
+fi
+
+tmp_file=$(mktemp /etc/vconsole.conf.XXXXXX)
+trap 'rm -f "$tmp_file"' EXIT HUP INT TERM
+if [ -f "$vconsole_file" ]; then
+	sed -e '/^setfont[[:space:]]/d' -e '/^FONT=/d' "$vconsole_file" >"$tmp_file"
+fi
+printf 'FONT=%s\n' "$font" >>"$tmp_file"
+install -o root -g root -m 0644 "$tmp_file" "$vconsole_file"
+
+if setfont -C /dev/tty1 "$font"; then
+	echo "Applied $font (16x32) on tty1; saved $vconsole_file. Backup: $backup_dir"
+else
+	echo "Saved $vconsole_file with FONT=$font; tty1 could not accept a live font change. It will apply on next boot. Backup: $backup_dir"
+fi

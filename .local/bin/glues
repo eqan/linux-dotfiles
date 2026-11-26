@@ -1,0 +1,43 @@
+#!/bin/sh
+
+CARGO_HOME=${CARGO_HOME:-"$HOME/.local/share/cargo"}
+REAL_GLUES="$CARGO_HOME/bin/glues"
+
+[ -x "$REAL_GLUES" ] || {
+	echo "Glues Minimal is not installed. Run ~/.config/larbs/install-glues-minimal." >&2
+	exit 1
+}
+
+# Keep CLI arguments and non-X11 launches on Glues' normal entry menu.
+if [ "$#" -gt 0 ] || [ "${GLUES_BACKEND_MENU:-0}" = 1 ] || \
+	[ ! -t 0 ] || [ ! -t 1 ] || [ -z "${DISPLAY:-}" ] || \
+	! command -v xdotool >/dev/null 2>&1; then
+	exec "$REAL_GLUES" "$@"
+fi
+
+config_file=${HOME:?HOME is not set}/.glues/config
+git_path=$(awk -F= '$1 == "last_git_path" { sub(/^[^=]*=/, ""); print; exit }' \
+	"$config_file" 2>/dev/null || true)
+case "$git_path" in
+	'~/'*) git_path="$HOME/${git_path#~/}" ;;
+esac
+[ -n "$git_path" ] && [ -d "$git_path/.git" ] || exec "$REAL_GLUES" "$@"
+
+# Only send startup keys to the terminal that launched Glues. If focus changes
+# while Glues starts, leave its normal chooser untouched.
+terminal_window=$(xdotool getactivewindow 2>/dev/null) ||
+	exec "$REAL_GLUES" "$@"
+
+(
+	sleep 0.5
+	[ "$(xdotool getactivewindow 2>/dev/null)" = "$terminal_window" ] || exit 0
+	xdotool key --clearmodifiers g || exit 0
+	sleep 0.2
+	for _ in 1 2 3; do
+		[ "$(xdotool getactivewindow 2>/dev/null)" = "$terminal_window" ] || exit 0
+		xdotool key --clearmodifiers Return || exit 0
+		sleep 0.2
+	done
+) >/dev/null 2>&1 &
+
+exec "$REAL_GLUES" "$@"

@@ -1,0 +1,33 @@
+#!/bin/sh
+
+. "$(dirname "$0")/icons"
+
+case $BLOCK_BUTTON in
+	3) notify-send 'Battery' 'Battery status and charge are shown here.' ;;
+	6) setsid -f "${TERMINAL:-st}" -e "${EDITOR:-nvim}" "$0" ;;
+esac
+
+for battery in /sys/class/power_supply/BAT?*; do
+	[ -r "$battery/capacity" ] || continue
+	capacity=$(cat "$battery/capacity")
+	status=$(cat "$battery/status" 2>/dev/null || true)
+
+	case $status in
+		Charging) icon=$ICON_PLUG ;;
+		Not\ charging) icon=$ICON_BOLT ;;
+		Full) icon=$ICON_BATTERY_FULL ;;
+		*)
+			if [ "$capacity" -ge 70 ]; then
+				icon=$ICON_BATTERY_FULL
+			elif [ "$capacity" -ge 30 ]; then
+				icon=$ICON_BATTERY_HALF
+			else
+				icon=$ICON_BATTERY_LOW
+			fi
+			;;
+	esac
+
+	[ "$capacity" -gt 15 ] || capacity="!$capacity"
+	printf '%s %s%%\n' "$icon" "$capacity"
+	exit
+done
