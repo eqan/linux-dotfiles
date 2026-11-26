@@ -14,7 +14,7 @@ sudo timedatectl set-timezone Europe/Paris
 sudo pacman -S --needed --noconfirm \
 	base-devel git github-cli rsync curl networkmanager \
 	zsh zsh-autosuggestions zsh-completions \
-	gnupg isync lynx msmtp neomutt pass urlview \
+	gnupg isync lynx msmtp neomutt pass urlview translate-shell ghostscript poppler \
 	bluez bluez-utils power-profiles-daemon gammastep \
 	ly os-prober \
 	mpv ffmpeg v4l-utils \
@@ -33,7 +33,6 @@ fi
 yay -S --needed \
 	mutt-wizard \
 	zen-browser-bin \
-	glues \
 	xdg-desktop-portal-termfilechooser-hunkyburrito-git
 
 mkdir -p "$home_dir/.config" "$home_dir/.local"
@@ -41,6 +40,7 @@ cp -a "$repo_dir/.config/." "$home_dir/.config/"
 cp -a "$repo_dir/.local/." "$home_dir/.local/"
 cp -a "$repo_dir/.xprofile" "$repo_dir/.zprofile" "$repo_dir/.zshenv" "$home_dir/"
 chmod 755 "$home_dir/.config/x210ai/x210ai-power"
+"$home_dir/.config/larbs/install-glues-minimal"
 
 # Keep lf ordered by newest modification time, with the timestamp visible.
 lf_config="$home_dir/.config/lf/lfrc"
@@ -67,7 +67,7 @@ if command -v xdg-mime >/dev/null 2>&1; then
 	xdg-mime default file.desktop inode/directory
 fi
 
-# Connect Glues to the private notes repository when GitHub CLI is signed in.
+# Configure the private notes repository for the fork's plain-text settings.
 "$home_dir/.config/larbs/setup-glues-notes"
 
 find "$home_dir/.local/bin" -type f -exec chmod 755 {} +

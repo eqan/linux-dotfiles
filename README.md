@@ -21,7 +21,9 @@ and machine-specific login and boot setup.
   configured to retain terminal history.
 - **Glues notes sync:** Glues opens the private `eqan/notes` Git notebook by
   default. Setup uses GitHub CLI credentials, clones the notebook to `~/notes`
-  when needed, and saves the Git backend settings in Glues config.
+  when needed, installs the prebuilt personal `glues-minimal-terminal-note-taker` binary,
+  removes the upstream system package, and saves Git settings in
+  `~/.glues/config`. Existing CSV settings are migrated on first launch.
 - **Zen Browser:** installed from the AUR and launched through a wrapper that
   uses the system D-Bus and XDG portal. The Zen profile sets Roboto fonts,
   hardware rendering, cache limits, and reduced telemetry.
@@ -97,8 +99,9 @@ sudo ~/.config/larbs/set-console-font
 ```
 
 `bootstrap.sh` installs packages, copies `.config` and `.local` into the home
-directory, applies the Zen profile defaults, configures GitHub CLI for Git, and
-sets up the Glues notes notebook when authenticated. If `gh auth status` is not
+directory, installs Glues from the personal GitHub fork, removes the upstream
+package, applies the Zen profile defaults, configures GitHub CLI for Git, and
+sets up the notes notebook when authenticated. If `gh auth status` is not
 ready, run `gh auth login` and then `~/.config/larbs/setup-glues-notes`.
 `bootstrap-x210ai` installs the camera, Bluetooth,
 portal, status-bar, LTS kernel, Timeshift, and package-cache requirements and
@@ -136,10 +139,15 @@ The helper uses `mw -f` for Google accounts because Gmail folder discovery can
 take longer than Mutt Wizard's built-in five-second probe timeout. The bootstrap
 also keeps `~/.config/isyncrc` linked to the Mutt Wizard config, so both the
 configured `MBSYNCRC` path and older isync defaults work. Use `neomutt` to read
-mail and `mail-sync` to synchronize it locally. On the first run, `mail-sync`
-pulls newly arrived Inbox messages first, then new mail in other folders, and
-then backfills older messages. Later runs do a normal pull sync. In Neomutt,
-`o` or `O` runs this helper. Gmail’s actual sent mailbox is `[Gmail]/Sent Mail`; the setup helper maps
+mail and `mail-sync` to synchronize it locally. Opening NeoMutt returns to the
+local mailbox immediately while the initial sync runs in the background. It
+pulls new Inbox mail first, then other new mail, and backfills older mail only
+after new mail finishes. Pressing `o`/`O` starts the same priority sync. The
+Inbox priority pull is not capped at 20 because mbsync's `MaxMessages` limits
+local mailbox retention and could discard older cached mail. NeoMutt checks
+the local mailbox every 10 seconds so new arrivals appear without restarting
+it. The Inbox is sorted newest-first. Gmail’s actual
+sent mailbox is `[Gmail]/Sent Mail`; the setup helper maps
 Neomutt’s sent-record folder and `gs` shortcut there instead of the generic
 `Sent` label. Mail sync is pull-only so an interrupted local import cannot
 upload duplicate local messages back to Gmail.
@@ -168,6 +176,28 @@ other links; `c` copies the selected URL, Enter opens it in Zen Browser, Page
 Up/Page Down scroll the message, and `q`/Escape returns. The Neomutt status
 lines show `Ctrl-B: Links` as a reminder. HTML-only messages also render in the
 pager through Lynx.
+
+Press `F9` in the message index or pager to translate the readable message
+body to English. The source language is detected automatically, and the
+translation opens in a separate pager; the original message stays unchanged.
+The helper sends sections concurrently to Google Translate using a POST body,
+and shows a status while it waits. If Google's web endpoint is unavailable, it
+falls back to Translate Shell. It uses Google's web translation endpoint, not
+the paid Cloud Translation API. Pressing `F9` sends the message body to Google;
+use it only for messages you are comfortable translating online.
+
+On the compose screen, lowercase `a` opens `lf` to attach files. Use Space to
+select files, `l` to confirm, and `q` to cancel. Uppercase `A` attaches a
+message, and `Esc` then `a` opens NeoMutt's built-in attachment browser.
+
+If Gmail rejects a PDF with a `552 5.7.0` security message, select it in `lf`
+and press `P`. This creates a separate `*-no-annotations.pdf` using
+Ghostscript; its page links, forms, and annotations are removed, while the
+original stays untouched. Review the rebuilt file before attaching it, since
+PDF links and digital signatures will no longer work. This can help with a
+document-level trigger, but Gmail can also block message text or links, so it
+cannot guarantee acceptance. If Gmail still rejects it, simplify the message
+or share the PDF through Google Drive.
 
 ## System updates and recovery
 
