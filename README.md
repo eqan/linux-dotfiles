@@ -306,7 +306,12 @@ both Zen and the X session use the systemd user D-Bus required by the portal.
 `lf` opens sorted by most recently modified, with timestamps shown. Useful
 sort shortcuts are `s` then `t` for modification time, `s` then
 `b` for file birth time where supported, and `z` then `r` to reverse the sort
-order. The `file.desktop` entry is the default handler for `inode/directory`.
+order. Filename icons use Font Awesome solid glyphs in one muted color. The
+`lfub` launcher uses Ueberzug++ to render images, PDF first pages, and video
+thumbnails as pixel overlays in X11, avoiding the soft character-art look.
+Chafa remains the fallback outside X11, and text previews use `bat`. The
+`file.desktop` entry and the portal file chooser both launch `lfub` so they use
+the same preview path.
 
 ## Rebuilding after changes
 

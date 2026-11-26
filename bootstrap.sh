@@ -17,7 +17,7 @@ sudo pacman -S --needed --noconfirm \
 	gnupg isync lynx msmtp neomutt pass urlview translate-shell ghostscript poppler \
 	bluez bluez-utils power-profiles-daemon gammastep \
 	ly os-prober \
-	mpv ffmpeg v4l-utils \
+	mpv ffmpeg ffmpegthumbnailer chafa bat ueberzugpp v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \
 	python-gobject gtk3 xdg-desktop-portal xdg-desktop-portal-gtk xdg-utils lf \
 	xclip maim nsxiv xdotool \
