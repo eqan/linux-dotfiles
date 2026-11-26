@@ -287,8 +287,13 @@ The overlay creates 160-pixel-wide image previews without blocking search and
 retains the original PNG for restore. It loads entries in pages of 50, starts
 loading the next page with about 20 entries left, and preserves your scroll
 position and selection while adding results. Capture is capped at 32 MiB per
-item, and duplicate content moves to the top of the history instead of creating
-another row.
+item. Duplicate content updates its copy count and recency instead of creating
+another row; the picker shows that count and lists frequent entries first when
+the search field is empty. Search ranks exact phrases above token matches,
+prefixes, and typo tolerant fuzzy matches, then uses copy count and recency to
+order equally relevant entries. Accents are ignored while matching. New input
+cancels stale page requests so results from an earlier query cannot replace the
+current search.
 
 ## File selection and `lf`
 
