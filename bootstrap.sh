@@ -13,9 +13,11 @@ sudo timedatectl set-timezone Europe/Paris
 
 sudo pacman -S --needed --noconfirm \
 	base-devel git github-cli rsync curl networkmanager \
+	neovim rust-analyzer \
 	zsh zsh-autosuggestions zsh-completions \
 	gnupg isync lynx msmtp neomutt pass urlview translate-shell ghostscript poppler \
 	bluez bluez-utils power-profiles-daemon gammastep \
+	intel-media-driver libva-utils \
 	ly os-prober \
 	mpv ffmpeg ffmpegthumbnailer chafa bat ueberzugpp v4l-utils \
 	pipewire pipewire-pulse pipewire-audio wireplumber libnotify \

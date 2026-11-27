@@ -61,7 +61,13 @@ and machine-specific login and boot setup.
 - **Audio:** PipeWire provides audio; hardware media keys and dwm shortcuts
   control volume and MPD playback.
 - **Power profile:** power-profiles-daemon uses `power-saver` on battery and
-  `balanced` on AC through a user service.
+  `balanced` on AC through a user service. The service also switches the
+  2560x1600 panel to 60 Hz on battery and 165 Hz on AC. Status-bar polling is
+  reduced for slowly changing values, and brightness switches to 60% on battery
+  and 90% on AC when the power source changes. NetworkManager enables Wi-Fi
+  power saving by default. Brightness refreshes on its status signal.
+  Zen uses Intel's `iHD` VA-API driver for hardware video decoding when
+  `intel-media-driver` is installed.
 - **Insta360 Link 2C:** the camera script configures the standard UVC controls
   and opens a low-latency 3840×2160, 30 fps MPV view.
 - **High-DPI X11 setup:** uses the native 2560×1600 panel mode, 186 DPI,
@@ -163,8 +169,9 @@ sidebar, status line, headers, quotes, and links within the same palette.
 The st default background uses dwm's `#1d2021`; its existing opacity remains
 unchanged.
 
-In Neomutt, use `r` to reply, `R` to reply to all, `m` to compose, and `y` in
-the compose screen to send. Use `gs` for Gmail Sent. Press `Ctrl-B` or `F8` in
+In Neomutt, the index and pager headers show the main actions: `r` replies,
+`R` replies to all, `m` starts a message, `F6` copies, `F9` translates, `o`
+syncs mail, and `Ctrl-B`/`F8` opens Links mode. Use `gs` for Gmail Sent. Press `Ctrl-B` or `F8` in
 the index or message view to enter link mode. It displays the message text with
 the selected hyperlink highlighted in place, so the company, role, and location
 remain visible while you navigate. LinkedIn company and title links are grouped
@@ -185,6 +192,22 @@ and shows a status while it waits. If Google's web endpoint is unavailable, it
 falls back to Translate Shell. It uses Google's web translation endpoint, not
 the paid Cloud Translation API. Pressing `F9` sends the message body to Google;
 use it only for messages you are comfortable translating online.
+
+Press `F6` in the index or message pager to copy the selected email's readable
+authored content; quoted reply lines and their attribution are removed. Press
+`F7` in the index or open message pager to browse that conversation in a
+thread-only view. The selected message is highlighted; `j`/`k` or the arrow
+keys move through replies and their nested `>`-quoted emails, and `F6` copies
+the highlighted content without the quote prefixes. Press `q` to
+return to the index or the same open message where you started. The normal
+message pager does not show extra index rows. This uses NeoMutt's already
+loaded thread without scanning the account Maildir, and restores any messages
+you had tagged before opening the viewer. Lowercase `v` continues to open
+attachments. From the index or pager, press `Esc` then `F6` to copy the whole
+response thread, with sender, date, and subject labels.
+In Links mode, `F6` copies the rendered message text, including job
+work-arrangement annotations; lowercase `c` still copies only the selected
+URL.
 
 On the compose screen, lowercase `a` opens `lf` to attach files. Use Space to
 select files, `l` to confirm, and `q` to cancel. Uppercase `A` attaches a
@@ -288,12 +311,12 @@ retains the original PNG for restore. It loads entries in pages of 50, starts
 loading the next page with about 20 entries left, and preserves your scroll
 position and selection while adding results. Capture is capped at 32 MiB per
 item. Duplicate content updates its copy count and recency instead of creating
-another row; the picker shows that count and lists frequent entries first when
-the search field is empty. Search ranks exact phrases above token matches,
-prefixes, and typo tolerant fuzzy matches, then uses copy count and recency to
-order equally relevant entries. Accents are ignored while matching. New input
-cancels stale page requests so results from an earlier query cannot replace the
-current search.
+another row; the picker shows that count and lists the most recently copied
+entries first when the search field is empty. Search results put the most
+frequently copied matching entries first, then rank by exact phrases, token
+matches, prefixes, and typo tolerant fuzzy matches. Accents are ignored while
+matching. New input cancels stale page requests so results from an earlier
+query cannot replace the current search.
 
 ## File selection and `lf`
 
@@ -312,6 +335,164 @@ thumbnails as pixel overlays in X11, avoiding the soft character-art look.
 Chafa remains the fallback outside X11, and text previews use `bat`. The
 `file.desktop` entry and the portal file chooser both launch `lfub` so they use
 the same preview path.
+
+## Neovim development setup
+
+Neovim uses its built-in terminal and LSP client, the already-installed
+`lf` sidebar, and the existing Vimagit plugin for Git change review. The
+terminal is a plain shell, so run Codex, Claude Code, Aider, or another agent
+from the project directory without adding an agent-specific Neovim plugin.
+Rust projects use `rust-analyzer` when installed; built-in completion is
+available with `Ctrl-X Ctrl-O` in Insert mode.
+
+| Key | Action |
+| --- | --- |
+| `,e` or `,n` | Open the LF sidebar; choose a file to open it in Neovim |
+| `,t` | Toggle the bottom shell panel |
+| `,g` | Open Vimagit to review repository changes |
+| `Ctrl-\`, then `Ctrl-N` | Leave terminal input mode; use `,t` to hide the panel |
+| `,lr` | Rename the symbol under the cursor (Rust LSP) |
+| `,la` | Show available code actions (Rust LSP) |
+| `,ld` | Show the diagnostic under the cursor (Rust LSP) |
+
+After an agent edits files, press `,g`. Vimagit shows staged, unstaged, and
+untracked changes together. Move to a filename and press `Enter` to expand
+its diff; `Ctrl-N` and `Ctrl-P` move between changed hunks. Press `S` on a
+hunk to stage or unstage it, and `q` to close the review. Neovim checks for
+external file changes when you return to a buffer, so agent edits to an open,
+unmodified file refresh automatically.
+
+The terminal job stays alive while its panel is hidden. LF uses its built-in
+selection output, and multi-selected files are added to Neovim's argument
+list. The bootstrap installs Neovim and `rust-analyzer` on fresh systems.
+
+### Complete Neovim shortcut reference
+
+The Neovim leader key is `,`. The `;` entries below are command-line
+abbreviations used after `:` in commands such as `:edit`, `:split`, and
+`:vsplit`.
+
+#### LARBS mappings
+
+| Mode | Key | Action |
+| --- | --- | --- |
+| Normal | `,,` | Jump to the next `<++>` placeholder |
+| Insert | `,,` | Leave Insert mode and jump to the next `<++>` placeholder |
+| Normal | `,f` | Toggle Goyo writing mode |
+| Normal | `,o` | Toggle English spell checking |
+| Normal | `,g` | Open Vimagit Git review |
+| Normal | `,t` | Toggle the bottom shell terminal panel |
+| Normal | `,e` or `,n` | Open the LF file sidebar |
+| Normal | `,h` | Toggle the status line, ruler, and command display |
+| Normal | `,s` | Run `shellcheck -x` on the current file |
+| Normal | `,b` | Open `$BIB` in a vertical split |
+| Normal | `,r` | Open `$REFER` in a vertical split |
+| Normal | `,c` | Save and run the `compiler` command |
+| Normal | `,p` | Open the generated PDF or HTML with `opout` |
+| Normal | `,v` | Open the Vimwiki index |
+| Normal | `,lr` | Rename the symbol under the cursor through Rust LSP |
+| Normal | `,la` | Show available Rust LSP code actions |
+| Normal | `,ld` | Show the diagnostic under the cursor |
+| Normal | `Ctrl-h/j/k/l` | Move between Neovim splits |
+| Normal | `Q` | Format the current paragraph with `gq` |
+| Normal | `S` | Start search and replace using the current search pattern |
+| Normal | `c` | Change text without overwriting a register |
+| Command-line | `w!!` | Write the current file through `sudo` |
+
+Press `,t`, run any coding agent, then press `Ctrl-\` followed by `Ctrl-N`
+to return to Neovim. Press `,g` to review the agent's edits. The terminal job
+stays alive while its panel is hidden, and LF returns selected files to
+Neovim's argument list.
+
+#### Vimagit mappings
+
+These work inside the Git review opened with `,g`:
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Expand or collapse a file diff |
+| `Ctrl-N` / `Ctrl-P` | Next or previous changed hunk |
+| `S` | Stage or unstage the current hunk |
+| `F` | Stage or unstage the entire file |
+| `L` | Stage or unstage the current line |
+| `M` | Mark a line for staging |
+| `R` | Refresh the Git status and diff |
+| `-` / `+` / `0` | Reduce, increase, or reset diff context |
+| `DDD` | Discard the current hunk |
+| `I` | Ignore the current file |
+| `q` | Close Vimagit |
+| `?` | Toggle Vimagit help |
+| `CC` | Commit staged changes |
+| `CA` | Amend the previous commit |
+| `CF` | Fix up the previous commit |
+| `CU` | Leave commit mode |
+
+#### Plugin mappings
+
+| Plugin | Key or command | Action |
+| --- | --- | --- |
+| vim-surround | `ys{motion}{char}` | Surround a motion, such as `ysiw]` |
+| vim-surround | `yss{char}` | Surround the current line |
+| vim-surround | `ds{char}` | Delete a surrounding pair |
+| vim-surround | `cs{old}{new}` | Change one surrounding pair to another |
+| vim-surround | Visual `S{char}` | Surround the visual selection |
+| vim-commentary | `gcc` | Toggle the current line comment |
+| vim-commentary | `gc{motion}` | Comment the target of a motion |
+| vim-commentary | Visual `gc` | Toggle comments on the selection |
+| Goyo | `:Goyo` / `:Goyo!` | Toggle or exit writing mode |
+| Vimwiki | `Enter` | Follow or create a wiki link |
+| Vimwiki | `Shift-Enter` | Follow a wiki link in a split |
+| Vimwiki | `Backspace` | Return to the previous wiki page |
+| Vimwiki | `Tab` / `Shift-Tab` | Next or previous wiki link |
+
+Vimwiki also provides `,ww` for the index, `,wt` for the index in a tab,
+`,wi` for the diary index, `,w,w` for today's diary entry, `,wh` to convert a
+page to HTML, and `,whh` to convert and open the HTML page. The LARBS config
+also maps `,v` directly to `:VimwikiIndex`.
+
+#### Command-line path abbreviations
+
+For example, `:vsplit ;cfv` opens the Neovim configuration.
+
+| Abbreviation | Path |
+| --- | --- |
+| `;h` | `/home/e` |
+| `;cf` | `/home/e/.config` |
+| `;cac` | `/home/e/.cache` |
+| `;D` / `;d` | `/home/e/Downloads` / `/home/e/Documents` |
+| `;dt` | `/home/e/.local/share` |
+| `;rr` / `;src` | `/home/e/.local/src` |
+| `;sc` | `/home/e/.local/bin` |
+| `;mn` | `/mnt` |
+| `;m` | `/home/e/Music` |
+| `;pp` | `/home/e/Pictures` |
+| `;vv` | `/home/e/Videos` |
+| `;bf` / `;bd` | Shell bookmark files / directories |
+| `;cfx` | `/home/e/.config/x11/xresources` |
+| `;cfb` | `~/.local/src/dwmblocks/config.h` |
+| `;cfv` | `/home/e/.config/nvim/init.vim` |
+| `;cfz` | `/home/e/.config/zsh/.zshrc` |
+| `;cfa` / `;cfp` | Shell aliases / shell profile |
+| `;cfm` | `/home/e/.config/mutt/muttrc` |
+| `;cfn` / `;cfu` | Newsboat config / URLs |
+| `;cfmb` / `;cfmc` | ncmpcpp bindings / config |
+| `;cfl` / `;cfL` | LF config / LF scope script |
+| `;cfX` | nsxiv key handler |
+
+#### Automatic behavior
+
+The config enables relative line numbers, syntax and filetype support, mouse
+support, the system clipboard, split-below and split-right behavior, UTF-8,
+and full command completion. It removes automatic comment insertion on new
+lines. Before saving, it removes trailing whitespace and extra final blank
+lines; C files receive a final newline and NeoMutt signatures are preserved.
+
+Opening a NeoMutt draft starts Goyo at 80 columns. `ZZ` sends the draft and
+`ZQ` abandons it. Xresources files are detected and reloaded after saving.
+Saving dwmblocks configuration rebuilds and restarts dwmblocks. Saving
+`bm-files` or `bm-dirs` regenerates the related shortcut files. `,lr`, `,la`,
+and `,ld` provide Rust LSP rename, code actions, and diagnostics when
+`rust-analyzer` is installed.
 
 ## Rebuilding after changes
 
